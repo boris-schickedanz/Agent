@@ -7,8 +7,18 @@ const DEFAULT_PROFILES = {
     allow: [
       'get_current_time', 'search_memory', 'list_memories',
       'http_get', 'save_memory', 'wait',
+      // fs:read tools
+      'read_file', 'list_directory', 'file_search', 'grep_search',
     ],
-    deny: ['http_post'],
+    deny: [
+      'http_post',
+      // fs:write tools
+      'write_file', 'edit_file',
+      // shell:execute tools
+      'run_command', 'run_command_background', 'kill_process',
+      // agent:delegate tools
+      'delegate_task', 'check_delegation', 'cancel_delegation',
+    ],
   },
   full: {
     allow: ['*'],

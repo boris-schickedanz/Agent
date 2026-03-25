@@ -1,6 +1,6 @@
 # Spec 20 — Daemon Mode & Health Monitoring
 
-> Status: **Draft** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
 
 ## 1. Purpose
 
@@ -8,18 +8,14 @@ Enable AgentCore to run as an always-on service that survives reboots, crashes, 
 
 ## 2. Deployment Model
 
-AgentCore is a plain Node.js application — it runs anywhere Node.js runs (macOS, Linux, Windows). The primary target is **Apple Silicon Macs**.
-
-There is one way to run it:
+AgentCore is a plain Node.js application. The primary target is **Apple Silicon Macs**.
 
 | Mode | Command |
 |------|---------|
 | **Foreground** | `npm start` or `agentcore start` |
-| **Daemon** (crash-safe, boot-persistent) | `agentcore start --daemon` (uses PM2 under the hood) |
+| **Daemon** (crash-safe, boot-persistent) | `agentcore start --daemon` (uses PM2) |
 
-PM2 is the single daemon strategy — cross-platform (macOS, Linux, Windows), battle-tested, zero custom code.
-
-Shell command isolation via containers is an optional security layer, configured in the ProcessManager (see [Spec 18 §2.4](18-shell-execution.md)).
+PM2 is the single daemon strategy — cross-platform, battle-tested, zero custom code.
 
 ## 3. Components
 
@@ -34,15 +30,11 @@ module.exports = {
     script: 'src/index.js',
     watch: false,
     max_memory_restart: '512M',
-    env: {
-      NODE_ENV: 'production',
-    },
-    // Log management
+    env: { NODE_ENV: 'production' },
     error_file: './logs/error.log',
     out_file: './logs/out.log',
     merge_logs: true,
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    // Restart policy
     restart_delay: 5000,
     max_restarts: 10,
     min_uptime: 10000,
@@ -50,30 +42,17 @@ module.exports = {
 };
 ```
 
-The CLI (`agentcore start --daemon`) wraps these PM2 commands:
-
-```bash
-pm2 start ecosystem.config.cjs     # Start
-pm2 startup                         # Enable boot persistence
-pm2 save                            # Save current process list
-pm2 monit                           # Monitor
-pm2 logs agentcore                  # View logs
-pm2 restart agentcore               # Restart
-```
-
-> **Advanced (macOS):** Users who prefer launchd over PM2 can write a standard `.plist` — AgentCore has no special launchd integration, it's just `node src/index.js` with `KeepAlive` and `RunAtLoad`.
-
 ### 3.2 Health Endpoint
 
 **File:** `src/web/health.js`
 **Class:** `HealthServer`
 
-Minimal HTTP server for health checks and basic status.
+Minimal HTTP server using Node.js built-in `http.createServer()`. No Express dependency.
 
 **Interface:**
 
 ```js
-constructor({ port, messageQueue, adapterRegistry, db, logger })
+constructor({ port, bind, messageQueue, adapterRegistry, db, logger, config })
 start(): Promise<void>
 stop(): Promise<void>
 ```
@@ -82,31 +61,24 @@ stop(): Promise<void>
 
 #### `GET /health`
 
-Returns 200 if healthy, 503 if degraded.
+Returns 200 if healthy, 503 if unhealthy. No authentication required.
 
 ```json
 {
   "status": "healthy",
   "uptime": 3600,
-  "version": "1.0.0",
-  "sessions": {
-    "active": 5,
-    "queued": 2
-  },
+  "version": "0.1.0",
   "adapters": ["console", "telegram"],
   "llmProvider": "anthropic",
   "database": "ok"
 }
 ```
 
-Health check logic:
-- `healthy`: all adapters running, database responsive
-- `degraded`: one or more adapters failed, but core is running
-- `unhealthy`: database unresponsive or critical error
+Health check: `healthy` if database responds to `SELECT 1`; `unhealthy` otherwise.
 
 #### `GET /status`
 
-Extended status (requires `MASTER_KEY` in `Authorization` header):
+Extended status. Requires `Authorization: Bearer {MASTER_KEY}` header.
 
 ```json
 {
@@ -118,29 +90,10 @@ Extended status (requires `MASTER_KEY` in `Authorization` header):
     "workspaceDir": "/app/workspace",
     "maxToolIterations": 25
   },
-  "tools": ["get_current_time", "read_file", "run_command", "..."],
-  "skills": [{ "name": "github", "trigger": "/gh" }],
   "recentSessions": [
-    { "id": "user:john", "lastActivity": "2026-03-25T10:00:00Z", "messageCount": 42 }
+    { "id": "user:john", "userId": "john", "lastActivity": "2026-03-25T10:00:00Z" }
   ]
 }
-```
-
-**Implementation:**
-
-Uses Node.js built-in `http.createServer()`. No Express or framework dependencies.
-
-```js
-const server = http.createServer((req, res) => {
-  if (req.method === 'GET' && req.url === '/health') {
-    // ... health check logic
-  } else if (req.method === 'GET' && req.url === '/status') {
-    // ... auth check + extended status
-  } else {
-    res.writeHead(404);
-    res.end();
-  }
-});
 ```
 
 ### 3.3 Enhanced Scheduler
@@ -153,22 +106,22 @@ Replaces `HeartbeatScheduler` with per-task independent execution.
 **Interface:**
 
 ```js
-constructor({ runner, db, logger, config })
+constructor({ runner, toolRegistry, sessionManager, db, logger, config })
 
-loadTasks(): void                  // Load from HEARTBEAT.md + tasks/ directory
+loadTasks(): void                  // Load from tasks/ directory or HEARTBEAT.md
 start(): void
 stop(): void
-getTaskStatus(name): TaskState
+getTaskStatus(name): TaskState | null
 listTasks(): TaskState[]
 ```
 
-**Task definition format** (in `tasks/` directory):
+**Task definition format** (in `tasks/` directory, parsed with `gray-matter`):
 
 ```markdown
 ---
 name: check-ci
 description: Monitor CI pipeline status
-schedule: "*/30 * * * *"           # Cron expression (or interval: "30m")
+schedule: "30m"
 timeout: 60000
 tools: [http_get, run_command]
 enabled: true
@@ -177,35 +130,11 @@ enabled: true
 Check the CI pipeline status for the main repo...
 ```
 
-**Key improvements over HeartbeatScheduler:**
+**Schedule format:** Supports interval strings (`30m`, `1h`, `60s`, `5000ms`) and simple cron patterns (`*/30 * * * *` extracts the minute interval).
 
-| Aspect | HeartbeatScheduler | TaskScheduler |
-|--------|-------------------|---------------|
-| Execution | All tasks in one LLM turn | Each task independent |
-| Scheduling | Single interval | Per-task cron or interval |
-| Failure isolation | One task fails → all fail | Independent |
-| State | Single `_inFlight` flag | Per-task state |
-| Source | `HEARTBEAT.md` only | `HEARTBEAT.md` + `tasks/*.md` |
+**Backward compatibility:** If `HEARTBEAT.md` exists and `tasks/` directory doesn't, falls back to HeartbeatScheduler-style behavior (parses `##` sections into individual tasks using the heartbeat interval).
 
-**Backward compatibility:**
-
-If `HEARTBEAT.md` exists and `tasks/` doesn't, fall back to HeartbeatScheduler behavior (single combined execution).
-
-**Per-task execution:**
-
-Each task gets its own `ExecutionRequest`:
-
-```js
-createExecutionRequest({
-  origin: ExecutionOrigin.SCHEDULED_TASK,
-  sessionId: `task:${taskName}`,
-  userId: 'system',
-  channelId: 'scheduler',
-  userContent: task.instructions,
-  toolSchemas: /* filtered by task.tools */,
-  timeoutMs: task.timeout,
-});
-```
+**Per-task execution:** Each task gets its own `ExecutionRequest` with `origin: SCHEDULED_TASK`, session ID `task:{name}`, and tool schemas filtered by the task's `tools` field. Tasks with `_inFlight` flag are skipped (no overlap).
 
 ## 4. Configuration
 
@@ -214,22 +143,21 @@ createExecutionRequest({
 | `HEALTH_PORT` | `9090` | Health endpoint port. Set to `0` to disable. |
 | `HEALTH_BIND` | `127.0.0.1` | Bind address (localhost only by default for security) |
 
-Added to `src/config.js`.
-
 ## 5. Integration (src/index.js)
 
-New phase after adapters:
-
 ```js
-// Phase 14 — Health endpoint
+// Phase 14 — Health endpoint (or Dashboard if enabled)
 if (config.healthPort > 0) {
-  const healthServer = new HealthServer({ port: config.healthPort, bind: config.healthBind, messageQueue, adapterRegistry, db, logger });
-  await healthServer.start();
-  // Add to shutdown sequence
+  if (config.dashboardEnabled) {
+    // DashboardServer extends HealthServer (Spec 22)
+  } else {
+    const healthServer = new HealthServer({ ... });
+    await healthServer.start();
+  }
 }
 
-// Phase 15 — Task scheduler (replaces heartbeat)
-const scheduler = new TaskScheduler({ runner, db, logger, config });
+// Phase 15 — Task scheduler (replaces heartbeat, falls back to HeartbeatScheduler)
+const scheduler = new TaskScheduler({ runner, toolRegistry, sessionManager, db, logger, config });
 scheduler.loadTasks();
 scheduler.start();
 ```
@@ -238,16 +166,16 @@ scheduler.start();
 
 | Decision | Rationale |
 |----------|-----------|
-| PM2 as the single daemon strategy | Battle-tested, cross-platform (macOS/Linux/Windows), zero custom code. Handles restart, logs, boot persistence. CLI wraps PM2 so users never need to learn it. |
-| No container for the agent itself | The agent is trusted code — containerizing it adds friction (volume mounts, networking) without security benefit. Shell command isolation is handled at the ProcessManager level (Spec 18). |
+| PM2 as the single daemon strategy | Battle-tested, cross-platform, zero custom code. CLI wraps PM2 so users never need to learn it. |
 | Health on localhost only | Prevents accidental exposure. Use SSH tunnel or reverse proxy for remote access. |
 | No Express for health | One endpoint doesn't justify a framework dependency. |
 | Per-task execution | One task's failure or token consumption shouldn't affect others. |
 | Backward-compatible scheduler | Existing HEARTBEAT.md setups continue working. |
+| `gray-matter` for task parsing | Already a dependency for skills. Consistent frontmatter format. |
 
 ## 7. Extension Points
 
-- **Web dashboard (Spec 22):** Health server becomes the foundation for a full REST API.
+- **Web dashboard (Spec 22):** Health server becomes the foundation for a full REST API via `DashboardServer`.
 - **Webhook triggers:** Accept POST requests to trigger tasks on-demand.
 - **File-watch triggers:** `fs.watch()` on directories to trigger tasks on file changes.
 - **Metrics export:** Prometheus-compatible `/metrics` endpoint.

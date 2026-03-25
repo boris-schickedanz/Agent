@@ -6,6 +6,9 @@
     "node": ">=20.0.0"
   },
   "main": "src/index.js",
+  "bin": {
+    "agentcore": "./bin/agentcore.js"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",

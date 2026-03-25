@@ -1,10 +1,12 @@
 import { validateInput } from './tool-schema.js';
 
 export class ToolExecutor {
-  constructor(toolRegistry, toolPolicy, logger) {
+  constructor(toolRegistry, toolPolicy, logger, { auditLogger, approvalManager } = {}) {
     this.registry = toolRegistry;
     this.policy = toolPolicy;
     this.logger = logger;
+    this.auditLogger = auditLogger || null;
+    this.approvalManager = approvalManager || null;
   }
 
   async execute(toolName, toolInput, session) {
@@ -21,7 +23,31 @@ export class ToolExecutor {
       const allowed = this.policy.isAllowed(toolName, session.userId, session);
       if (!allowed) {
         this.logger.warn({ toolName, userId: session.userId }, 'Tool access denied');
+        this._audit(toolName, toolInput, null, false, session, Date.now() - start);
         return { success: false, result: null, error: `Permission denied for tool: ${toolName}`, durationMs: 0 };
+      }
+    }
+
+    // 2.5. Approval check
+    if (this.approvalManager) {
+      const needs = this.approvalManager.needsApproval(toolName, session.userId, session.sessionId || session.id);
+      if (needs) {
+        const summary = this._summarizeInput(toolName, toolInput);
+        this.auditLogger?.logApproval({
+          toolName,
+          input: toolInput,
+          userId: session.userId,
+          sessionId: session.sessionId || session.id,
+          approved: false,
+          reason: 'pending',
+        });
+        return {
+          success: true,
+          result: `[APPROVAL_REQUIRED] The tool "${toolName}" requires your approval to proceed.\n\nCommand: ${summary}\n\nReply /approve to allow or /reject to deny.`,
+          error: null,
+          awaitingApproval: true,
+          durationMs: 0,
+        };
       }
     }
 
@@ -55,15 +81,20 @@ export class ToolExecutor {
       const durationMs = Date.now() - start;
       this.logger.info({ toolName, durationMs }, 'Tool executed');
 
+      const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+      this._audit(toolName, toolInput, resultStr, true, session, durationMs);
+
       return {
         success: true,
-        result: typeof result === 'string' ? result : JSON.stringify(result),
+        result: resultStr,
         error: null,
         durationMs,
       };
     } catch (err) {
       const durationMs = Date.now() - start;
       this.logger.error({ toolName, err: err.message, durationMs }, 'Tool execution failed');
+
+      this._audit(toolName, toolInput, err.message, false, session, durationMs);
 
       return {
         success: false,
@@ -72,5 +103,24 @@ export class ToolExecutor {
         durationMs,
       };
     }
+  }
+
+  _audit(toolName, input, output, success, session, durationMs) {
+    if (!this.auditLogger) return;
+    this.auditLogger.logToolExecution({
+      toolName,
+      input,
+      output,
+      success,
+      userId: session.userId,
+      sessionId: session.sessionId || session.id,
+      durationMs,
+    });
+  }
+
+  _summarizeInput(toolName, input) {
+    if (input.command) return input.command;
+    if (input.path) return input.path;
+    return JSON.stringify(input).slice(0, 200);
   }
 }

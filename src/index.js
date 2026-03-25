@@ -25,6 +25,16 @@ import { HistoryPruner } from './brain/history-pruner.js';
 import { registerSystemTools } from './tools/built-in/system-tools.js';
 import { registerHttpTools } from './tools/built-in/http-tools.js';
 import { registerMemoryTools } from './tools/built-in/memory-tools.js';
+import { Sandbox } from './security/sandbox.js';
+import { AuditLogger } from './security/audit-logger.js';
+import { ApprovalManager } from './security/approval-manager.js';
+import { ProcessManager } from './process/process-manager.js';
+import { registerFsTools } from './tools/built-in/fs-tools.js';
+import { registerShellTools } from './tools/built-in/shell-tools.js';
+import { registerDelegationTools } from './tools/built-in/delegation-tools.js';
+import { DelegationManager } from './core/delegation-manager.js';
+import { getAllBackends } from './core/delegation-backends.js';
+import { mkdirSync } from 'fs';
 import pino from 'pino';
 
 async function main() {
@@ -59,18 +69,59 @@ async function main() {
   registerHttpTools(toolRegistry);
   registerMemoryTools(toolRegistry, persistentMemory, memorySearch);
 
+  // Phase 4b: Sandbox & Audit
+  mkdirSync(config.workspaceDir, { recursive: true });
+  const sandbox = new Sandbox({
+    workspaceDir: config.workspaceDir,
+    readOnlyDirs: config.workspaceReadOnlyDirs,
+    logger,
+  });
+  const auditLogger = config.auditLogEnabled ? new AuditLogger({ db, logger }) : null;
+
+  // Phase 4c: File system tools
+  registerFsTools(toolRegistry, sandbox);
+
+  // Phase 4d: Process Manager & Shell tools
+  const processManager = new ProcessManager({
+    sandbox,
+    logger,
+    maxProcesses: config.maxBackgroundProcesses,
+    defaultTimeoutMs: config.defaultShellTimeoutMs,
+    containerMode: config.shellContainer,
+    containerRuntime: config.shellContainerRuntime,
+    containerImage: config.shellContainerImage,
+  });
+  registerShellTools(toolRegistry, processManager, sandbox);
+
+  // Phase 4e: Delegation Manager & tools
+  const delegationManager = new DelegationManager({
+    processManager,
+    runner: null, // Set after runner is created
+    db,
+    logger,
+    config,
+  });
+  for (const backend of getAllBackends()) {
+    delegationManager.registerBackend(backend);
+  }
+  registerDelegationTools(toolRegistry, delegationManager);
+
   // Phase 5: Security
   const inputSanitizer = new InputSanitizer();
   const rateLimiter = new RateLimiter(db, config);
   const toolPolicy = new ToolPolicy(db, config);
   const permissionManager = new PermissionManager(db, toolPolicy, config);
+  const approvalManager = new ApprovalManager({ db, eventBus, auditLogger, logger });
 
   // Phase 6: Prompt Builder
   const promptBuilder = new PromptBuilder(config, memorySearch);
 
   // Phase 7: Core — AgentLoop (runtime) + LocalRunner + HostDispatcher
   const sessionManager = new SessionManager(db, conversationMemory);
-  const toolExecutor = new ToolExecutor(toolRegistry, toolPolicy, logger);
+  const toolExecutor = new ToolExecutor(toolRegistry, toolPolicy, logger, {
+    auditLogger,
+    approvalManager,
+  });
   const agentLoop = new AgentLoop({
     llmProvider,
     promptBuilder,
@@ -81,6 +132,9 @@ async function main() {
   });
   const runner = new LocalRunner({ agentLoop, logger });
   const messageQueue = new MessageQueue(runner, logger);
+
+  // Wire delegation manager's runner reference
+  delegationManager.runner = runner;
 
   // Phase 8: Skills (loaded dynamically if directory exists)
   let skillLoader = null;
@@ -95,6 +149,16 @@ async function main() {
   // Phase 9: History Pruner
   const historyPruner = new HistoryPruner(config);
 
+  // Phase 9b: Agent Registry
+  let agentRegistry = null;
+  try {
+    const { AgentRegistry } = await import('./agents/agent-registry.js');
+    agentRegistry = new AgentRegistry({ agentsDir: 'agents', logger });
+    agentRegistry.loadAll();
+  } catch {
+    // Agent profiles are optional
+  }
+
   // Phase 10: Command Router
   const commandRouter = new CommandRouter({
     sessionManager,
@@ -105,6 +169,8 @@ async function main() {
     config,
     eventBus,
     logger,
+    approvalManager,
+    agentRegistry,
   });
 
   // Phase 11: Host Dispatcher
@@ -119,6 +185,7 @@ async function main() {
     eventBus,
     logger,
     config,
+    agentRegistry,
   });
 
   // Phase 12: Wire event bus — inbound message processing
@@ -164,7 +231,7 @@ async function main() {
       logger.warn({ userId: message.userId, patterns: injection.patterns }, 'Potential prompt injection detected');
     }
 
-    // Host commands (e.g. /new) — handled before the LLM pipeline
+    // Host commands (e.g. /new, /approve, /reject, /agent) — handled before the LLM pipeline
     try {
       const cmd = await commandRouter.handle(sanitized);
       if (cmd.handled && !cmd.forwardContent) return;
@@ -217,13 +284,68 @@ async function main() {
   // Console adapter (always available)
   adapterRegistry.register(new ConsoleAdapter(eventBus, config));
 
-  // Phase 14: Heartbeat (loaded dynamically if configured)
+  // Phase 14: Health endpoint / Dashboard
+  if (config.healthPort > 0) {
+    try {
+      if (config.dashboardEnabled) {
+        const { DashboardServer } = await import('./web/server.js');
+        const dashboardServer = new DashboardServer({
+          port: config.healthPort,
+          bind: config.healthBind,
+          messageQueue,
+          adapterRegistry,
+          db,
+          logger,
+          config,
+          toolRegistry,
+          skillLoader,
+          auditLogger,
+          scheduler: null, // Set after scheduler is created
+          agentRegistry,
+        });
+        await dashboardServer.start();
+        logger.info({ port: config.healthPort }, 'Dashboard server started');
+      } else {
+        const { HealthServer } = await import('./web/health.js');
+        const healthServer = new HealthServer({
+          port: config.healthPort,
+          bind: config.healthBind,
+          messageQueue,
+          adapterRegistry,
+          db,
+          logger,
+          config,
+        });
+        await healthServer.start();
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Failed to start health/dashboard server');
+    }
+  }
+
+  // Phase 15: Task Scheduler (replaces heartbeat)
+  let scheduler = null;
   try {
-    const { HeartbeatScheduler } = await import('./heartbeat/heartbeat-scheduler.js');
-    const heartbeat = new HeartbeatScheduler(runner, toolRegistry, sessionManager, db, config, logger);
-    heartbeat.start();
+    const { TaskScheduler } = await import('./scheduler/scheduler.js');
+    scheduler = new TaskScheduler({
+      runner,
+      toolRegistry,
+      sessionManager,
+      db,
+      logger,
+      config,
+    });
+    scheduler.loadTasks();
+    scheduler.start();
   } catch {
-    // Heartbeat is optional
+    // Fall back to legacy HeartbeatScheduler
+    try {
+      const { HeartbeatScheduler } = await import('./heartbeat/heartbeat-scheduler.js');
+      const heartbeat = new HeartbeatScheduler(runner, toolRegistry, sessionManager, db, config, logger);
+      heartbeat.start();
+    } catch {
+      // Scheduling is optional
+    }
   }
 
   // Start all adapters
@@ -238,7 +360,9 @@ async function main() {
   const shutdown = async () => {
     logger.info('Shutting down...');
     messageQueue.shutdown();
+    if (scheduler) scheduler.stop();
     await runner.shutdown();
+    await processManager.shutdownAll();
     await adapterRegistry.stopAll();
     db.close();
     process.exit(0);

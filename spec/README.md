@@ -20,23 +20,23 @@ Start with specs 01 and 10 for the overall architecture, then read subsystem spe
 | [10 — Host & Runner Architecture](10-host-runtime-boundary.md) | Host/runtime boundary, runner interface, ExecutionRequest/Result, HostDispatcher, orchestration flow, parallelism, timeout/cancellation |
 | [15 — Session Reset & Context Management](15-conversations-context.md) | `/new` command, tool result pruning, pre-compaction memory flush, rolling compression |
 
-## Coding Companion Roadmap (Draft)
+## Coding Companion
 
-Specs for evolving AgentCore into a persistent coding companion. See [30 — Implementation Plan](30-implementation-plan.md) for phasing and dependencies.
+Specs for the coding companion capabilities. All implemented.
 
-| Spec | Scope | Phase |
-|------|-------|-------|
-| [16 — Sandbox & Audit Logging](16-sandbox-and-audit.md) | Workspace path sandboxing, audit log table, tool execution logging | 0 |
-| [17 — Workspace Tools](17-workspace-tools.md) | File system tools: read, write, edit, list, search, grep | 1 |
-| [18 — Shell Execution](18-shell-execution.md) | Shell command execution, process manager, background processes, optional container sandbox, terminal sessions | 1 |
-| [19 — Approval Workflow](19-approval-workflow.md) | Interactive tool approval prompts, session-scoped caching, /approve and /reject commands | 1 |
-| [20 — Daemon & Health](20-daemon-and-health.md) | PM2 daemon mode, health HTTP endpoint, enhanced task scheduler | 2 |
-| [21 — Agent Delegation](21-agent-delegation.md) | Sub-agent delegation (Claude Code, Codex), multi-agent profiles, memory isolation | 3 |
-| [22 — CLI & Platform](22-cli-and-platform.md) | CLI tool, onboarding wizard, skill marketplace, web dashboard | 3 |
-| [30 — Implementation Plan](30-implementation-plan.md) | Phased roadmap, dependency graph, file change summary, acceptance criteria | — |
+| Spec | Scope |
+|------|-------|
+| [16 — Sandbox & Audit Logging](16-sandbox-and-audit.md) | Workspace path sandboxing, audit log table, tool execution logging |
+| [17 — Workspace Tools](17-workspace-tools.md) | File system tools: read, write, edit, list, search, grep |
+| [18 — Shell Execution](18-shell-execution.md) | Shell command execution, process manager, background processes, optional container sandbox |
+| [19 — Approval Workflow](19-approval-workflow.md) | Interactive tool approval prompts, session-scoped caching, /approve and /reject commands |
+| [20 — Daemon & Health](20-daemon-and-health.md) | PM2 daemon mode, health HTTP endpoint, enhanced task scheduler |
+| [21 — Agent Delegation](21-agent-delegation.md) | Sub-agent delegation (Claude Code, Codex), multi-agent profiles, memory namespace support |
+| [22 — CLI & Platform](22-cli-and-platform.md) | CLI tool, onboarding wizard, skill installer, web dashboard |
 
 ## Archived
 
 | File | Description |
 |------|-------------|
 | [14 — Migration Plan (ARCHIVED)](14-migration-plan-ARCHIVED.md) | Implementation plan for the host/runtime refactor (phases M1-M4). Retained as historical record. All phases complete. |
+| [30 — Implementation Plan (ARCHIVED)](30-implementation-plan-ARCHIVED.md) | Phased roadmap for coding companion features (specs 16-22). All phases complete. |

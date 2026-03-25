@@ -1,13 +1,15 @@
 import { MemoryFlusher } from '../brain/memory-flusher.js';
 
 /**
- * Intercepts host commands (e.g. /new) before they reach the LLM pipeline.
+ * Intercepts host commands (e.g. /new, /approve, /reject, /agent) before they
+ * reach the LLM pipeline.
  * Returns { handled, forwardContent } to indicate whether the message was
  * consumed and whether remaining content should be forwarded.
  */
 export class CommandRouter {
   constructor({ sessionManager, conversationMemory, llmProvider, toolExecutor,
-                toolRegistry, promptBuilder, config, eventBus, logger }) {
+                toolRegistry, promptBuilder, config, eventBus, logger,
+                approvalManager, agentRegistry }) {
     this.sessionManager = sessionManager;
     this.conversationMemory = conversationMemory;
     this.llmProvider = llmProvider || null;
@@ -16,6 +18,8 @@ export class CommandRouter {
     this.config = config;
     this.eventBus = eventBus;
     this.logger = logger;
+    this.approvalManager = approvalManager || null;
+    this.agentRegistry = agentRegistry || null;
     this.memoryFlusher = (llmProvider && toolExecutor)
       ? new MemoryFlusher(llmProvider, toolExecutor, logger)
       : null;
@@ -32,11 +36,97 @@ export class CommandRouter {
       return this._handleNew(sanitizedMessage, content);
     }
 
+    if (content === '/approve' || content === '/yes') {
+      return this._handleApprove(sanitizedMessage, true);
+    }
+
+    if (content === '/reject' || content === '/no') {
+      return this._handleApprove(sanitizedMessage, false);
+    }
+
+    if (content.startsWith('/agent ')) {
+      return this._handleAgent(sanitizedMessage, content);
+    }
+
     return { handled: false };
+  }
+
+  _handleApprove(message, approved) {
+    if (!this.approvalManager) {
+      this._respond(message, 'Approval system is not enabled.');
+      return { handled: true };
+    }
+
+    const sessionId = this.sessionManager.resolveSessionId(message);
+    const pending = this.approvalManager.getPending(sessionId);
+
+    if (!pending) {
+      this._respond(message, 'No pending approval request.');
+      return { handled: true };
+    }
+
+    this.approvalManager.resolve(sessionId, approved, approved ? null : 'User rejected');
+
+    if (approved) {
+      this._respond(message, 'Approved. Continuing...');
+    } else {
+      this._respond(message, 'Rejected. Operation cancelled.');
+    }
+
+    return { handled: true };
+  }
+
+  _handleAgent(message, content) {
+    if (!this.agentRegistry) {
+      this._respond(message, 'Agent profiles are not enabled.');
+      return { handled: true };
+    }
+
+    const agentName = content.slice('/agent '.length).trim();
+
+    if (agentName === 'list') {
+      const agents = this.agentRegistry.list();
+      if (agents.length === 0) {
+        this._respond(message, 'No agent profiles found.');
+      } else {
+        const list = agents.map(a => `- **${a.name}**: ${a.description}`).join('\n');
+        this._respond(message, `Available agents:\n${list}`);
+      }
+      return { handled: true };
+    }
+
+    if (agentName === 'default' || agentName === 'reset') {
+      const sessionId = this.sessionManager.resolveSessionId(message);
+      const session = this.sessionManager.getOrCreate(sessionId, message.userId, message.channelId, message.userName);
+      if (session.metadata) {
+        delete session.metadata.agentName;
+      }
+      this._respond(message, 'Switched to default agent.');
+      return { handled: true };
+    }
+
+    const profile = this.agentRegistry.get(agentName);
+    if (!profile) {
+      this._respond(message, `Agent profile "${agentName}" not found. Use /agent list to see available profiles.`);
+      return { handled: true };
+    }
+
+    const sessionId = this.sessionManager.resolveSessionId(message);
+    const session = this.sessionManager.getOrCreate(sessionId, message.userId, message.channelId, message.userName);
+    if (!session.metadata) session.metadata = {};
+    session.metadata.agentName = agentName;
+
+    this._respond(message, `Switched to agent: **${profile.name}** — ${profile.description}`);
+    return { handled: true };
   }
 
   async _handleNew(message, content) {
     const sessionId = this.sessionManager.resolveSessionId(message);
+
+    // Clear approval cache for this session
+    if (this.approvalManager) {
+      this.approvalManager.clearSession(sessionId);
+    }
 
     if (this.config.compactionMemoryFlush !== false && this.memoryFlusher) {
       this._respond(message, 'Saving important context before clearing...');

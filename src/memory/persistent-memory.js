@@ -2,9 +2,11 @@ import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, mkdir
 import { join } from 'path';
 
 export class PersistentMemory {
-  constructor(dataDir, db) {
-    this.memoryDir = join(dataDir, 'memory');
+  constructor(dataDir, db, namespace = null) {
+    const subDir = namespace ? join('memory', namespace) : 'memory';
+    this.memoryDir = join(dataDir, subDir);
     this.db = db;
+    this.namespace = namespace || '';
     mkdirSync(this.memoryDir, { recursive: true });
   }
 
@@ -13,12 +15,14 @@ export class PersistentMemory {
     const filePath = join(this.memoryDir, `${safeName}.md`);
     writeFileSync(filePath, content, 'utf-8');
 
+    const nsKey = this.namespace ? `${this.namespace}:${safeName}` : safeName;
+
     // Update FTS index
     try {
-      this.db.prepare('DELETE FROM memory_fts WHERE key = ?').run(safeName);
+      this.db.prepare('DELETE FROM memory_fts WHERE key = ?').run(nsKey);
       this.db.prepare(
         'INSERT INTO memory_fts (key, content, metadata) VALUES (?, ?, ?)'
-      ).run(safeName, content, JSON.stringify(metadata));
+      ).run(nsKey, content, JSON.stringify(metadata));
     } catch {
       // FTS update failure is non-fatal
     }
@@ -44,8 +48,9 @@ export class PersistentMemory {
     if (existsSync(filePath)) {
       unlinkSync(filePath);
     }
+    const nsKey = this.namespace ? `${this.namespace}:${safeName}` : safeName;
     try {
-      this.db.prepare('DELETE FROM memory_fts WHERE key = ?').run(safeName);
+      this.db.prepare('DELETE FROM memory_fts WHERE key = ?').run(nsKey);
     } catch {
       // Non-fatal
     }

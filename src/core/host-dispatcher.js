@@ -17,6 +17,7 @@ export class HostDispatcher {
     eventBus,
     logger,
     config,
+    agentRegistry,
   }) {
     this.sessionManager = sessionManager;
     this.toolPolicy = toolPolicy;
@@ -28,6 +29,7 @@ export class HostDispatcher {
     this.eventBus = eventBus;
     this.logger = logger;
     this.config = config;
+    this.agentRegistry = agentRegistry || null;
   }
 
   /**
@@ -45,10 +47,26 @@ export class HostDispatcher {
       history = this.historyPruner.prune(history);
     }
 
+    // Resolve agent profile (if session is bound to one)
+    let agentProfile = null;
+    if (this.agentRegistry && session.metadata?.agentName) {
+      agentProfile = this.agentRegistry.get(session.metadata.agentName);
+    }
+
     const allowedToolNames = this.toolPolicy
       ? new Set(this.toolPolicy.getEffectiveToolNames(sanitizedMessage.userId, session))
       : null;
-    const toolSchemas = this.toolRegistry.getSchemas(allowedToolNames);
+
+    // If agent profile restricts tools, intersect with role-based policy
+    let effectiveToolNames = allowedToolNames;
+    if (agentProfile?.tools && allowedToolNames) {
+      const profileSet = new Set(agentProfile.tools);
+      effectiveToolNames = new Set([...allowedToolNames].filter(t => profileSet.has(t)));
+    } else if (agentProfile?.tools) {
+      effectiveToolNames = new Set(agentProfile.tools);
+    }
+
+    const toolSchemas = this.toolRegistry.getSchemas(effectiveToolNames);
 
     let skillInstructions = null;
     if (this.skillLoader) {
@@ -80,11 +98,12 @@ export class HostDispatcher {
         userId: sanitizedMessage.userId,
         channelId: sanitizedMessage.channelId,
         userName: sanitizedMessage.userName || null,
+        agentProfile: agentProfile ? { name: agentProfile.name, soul: agentProfile.soul } : null,
       },
       history,
       userContent: sanitizedMessage.content,
       toolSchemas,
-      allowedToolNames,
+      allowedToolNames: effectiveToolNames,
       skillInstructions,
       memorySnippets,
       maxIterations: this.config.maxToolIterations,

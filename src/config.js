@@ -29,4 +29,26 @@ export const config = Object.freeze({
   ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'llama3.1',
   consoleUserId: process.env.CONSOLE_USER_ID || 'console-user',
+
+  // Phase 0: Sandbox & Audit
+  workspaceDir: resolve(process.env.WORKSPACE_DIR || './workspace'),
+  workspaceReadOnlyDirs: (process.env.WORKSPACE_READONLY_DIRS || '')
+    .split(',').map(s => s.trim()).filter(Boolean),
+  auditLogEnabled: process.env.AUDIT_LOG_ENABLED !== 'false',
+
+  // Phase 1: Shell Execution
+  shellContainer: process.env.SHELL_CONTAINER === 'true',
+  shellContainerRuntime: process.env.SHELL_CONTAINER_RUNTIME || 'auto',
+  shellContainerImage: process.env.SHELL_CONTAINER_IMAGE || 'agentcore-sandbox',
+  maxBackgroundProcesses: parseInt(process.env.MAX_BACKGROUND_PROCESSES || '10', 10),
+  defaultShellTimeoutMs: parseInt(process.env.DEFAULT_SHELL_TIMEOUT_SECONDS || '60', 10) * 1000,
+
+  // Phase 2: Health & Daemon
+  healthPort: parseInt(process.env.HEALTH_PORT || '9090', 10),
+  healthBind: process.env.HEALTH_BIND || '127.0.0.1',
+
+  // Phase 3: Delegation & Dashboard
+  maxDelegations: parseInt(process.env.MAX_DELEGATIONS || '10', 10),
+  maxDelegationsPerSession: parseInt(process.env.MAX_DELEGATIONS_PER_SESSION || '3', 10),
+  dashboardEnabled: process.env.DASHBOARD_ENABLED === 'true',
 });

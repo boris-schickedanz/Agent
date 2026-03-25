@@ -22,8 +22,13 @@ export class PromptBuilder {
   async build(session, availableTools, skillInstructions = null) {
     const parts = [];
 
-    // 1. Agent personality
-    parts.push(this._loadSoul());
+    // 1. Agent personality — use agent profile soul if present, otherwise SOUL.md
+    const agentProfile = session.metadata?.agentProfile;
+    if (agentProfile?.soul) {
+      parts.push(agentProfile.soul);
+    } else {
+      parts.push(this._loadSoul());
+    }
 
     // 2. Current context
     parts.push(`\n## Current Context`);
@@ -31,6 +36,9 @@ export class PromptBuilder {
     parts.push(`- Session: ${session.id}`);
     parts.push(`- User: ${session.userName || session.userId}`);
     parts.push(`- Channel: ${session.channelId}`);
+    if (agentProfile?.name) {
+      parts.push(`- Agent Profile: ${agentProfile.name}`);
+    }
 
     // 3. Relevant memories
     if (this.memorySearch && session.lastUserMessage) {
