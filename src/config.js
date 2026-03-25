@@ -15,4 +15,5 @@ export const config = Object.freeze({
   autoApproveUsers: process.env.AUTO_APPROVE_USERS === 'true',
   masterKey: process.env.MASTER_KEY || '',
   model: process.env.MODEL || 'claude-sonnet-4-20250514',
+  consoleUserId: process.env.CONSOLE_USER_ID || 'console-user',
 });

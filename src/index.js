@@ -68,6 +68,7 @@ async function main() {
     toolPolicy,
     contextCompactor,
     sessionManager,
+    permissionManager,
     eventBus,
     logger,
     config,
@@ -111,6 +112,12 @@ async function main() {
     // Sanitize
     const sanitized = inputSanitizer.sanitize(message);
 
+    // Injection detection (soft — log only, do not block)
+    const injection = inputSanitizer.detectInjection(sanitized.content);
+    if (injection.suspicious) {
+      logger.warn({ userId: message.userId, patterns: injection.patterns }, 'Potential prompt injection detected');
+    }
+
     // Enqueue
     try {
       const result = await messageQueue.enqueue(sanitized.sessionId, sanitized);
@@ -144,6 +151,7 @@ async function main() {
     const { SkillLoader } = await import('./skills/skill-loader.js');
     const skillLoader = new SkillLoader(toolRegistry, logger);
     await skillLoader.loadAll('./skills');
+    agentLoop.skillLoader = skillLoader;
   } catch {
     // Skills are optional
   }
@@ -151,7 +159,7 @@ async function main() {
   // Phase 11: Heartbeat (loaded dynamically if configured)
   try {
     const { HeartbeatScheduler } = await import('./heartbeat/heartbeat-scheduler.js');
-    const heartbeat = new HeartbeatScheduler(agentLoop, sessionManager, config, logger);
+    const heartbeat = new HeartbeatScheduler(agentLoop, sessionManager, db, config, logger);
     heartbeat.start();
   } catch {
     // Heartbeat is optional

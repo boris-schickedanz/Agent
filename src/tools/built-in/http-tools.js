@@ -1,3 +1,32 @@
+const BLOCKED_HOSTS = ['localhost', '127.0.0.1', '[::1]', '0.0.0.0', '169.254.169.254'];
+
+export function validateUrl(urlString) {
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error('Invalid URL');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Blocked protocol: ${parsed.protocol}`);
+  }
+
+  if (BLOCKED_HOSTS.includes(parsed.hostname)) {
+    throw new Error('Blocked host');
+  }
+
+  // Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
+  const ipMatch = parsed.hostname.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (ipMatch) {
+    const a = Number(ipMatch[1]);
+    const b = Number(ipMatch[2]);
+    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
+      throw new Error('Blocked private IP range');
+    }
+  }
+}
+
 export function registerHttpTools(registry) {
   registry.register({
     name: 'http_get',
@@ -17,6 +46,7 @@ export function registerHttpTools(registry) {
       required: ['url'],
     },
     handler: async (input) => {
+      validateUrl(input.url);
       const response = await fetch(input.url, {
         method: 'GET',
         headers: input.headers || {},
@@ -55,6 +85,7 @@ export function registerHttpTools(registry) {
       required: ['url'],
     },
     handler: async (input) => {
+      validateUrl(input.url);
       const headers = { 'Content-Type': 'application/json', ...(input.headers || {}) };
       const response = await fetch(input.url, {
         method: 'POST',

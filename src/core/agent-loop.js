@@ -11,6 +11,7 @@ export class AgentLoop {
     toolPolicy,
     contextCompactor,
     sessionManager,
+    permissionManager,
     eventBus,
     logger,
     config,
@@ -22,16 +23,19 @@ export class AgentLoop {
     this.toolPolicy = toolPolicy;
     this.compactor = contextCompactor;
     this.sessions = sessionManager;
+    this.permissionManager = permissionManager || null;
+    this.skillLoader = null;
     this.eventBus = eventBus;
     this.logger = logger;
     this.maxIterations = config.maxToolIterations;
   }
 
   async processMessage(normalizedMessage) {
-    const { sessionId, channelId, userId, userName, content } = normalizedMessage;
+    const { channelId, userId, userName, content } = normalizedMessage;
 
-    // 1. Get or create session
-    const session = this.sessions.getOrCreate(userId, channelId, userName);
+    // 1. Resolve canonical sessionId and get or create session
+    const sessionId = this.sessions.resolveSessionId(normalizedMessage);
+    const session = this.sessions.getOrCreate(sessionId, userId, channelId, userName);
     session.lastUserMessage = content;
 
     // 2. Load conversation history
@@ -43,8 +47,17 @@ export class AgentLoop {
       : null;
     const toolSchemas = this.toolRegistry.getSchemas(allowedTools);
 
-    // 4. Build system prompt
-    const systemPrompt = await this.promptBuilder.build(session, toolSchemas);
+    // 4. Build system prompt (with skill trigger matching)
+    let skillInstructions = null;
+    if (this.skillLoader) {
+      for (const skill of this.skillLoader.getLoadedSkills()) {
+        if (skill.trigger && content.startsWith(skill.trigger)) {
+          skillInstructions = skill.instructions;
+          break;
+        }
+      }
+    }
+    const systemPrompt = await this.promptBuilder.build(session, toolSchemas, skillInstructions);
 
     // 5. Prepare messages array
     const messages = [
@@ -147,7 +160,13 @@ export class AgentLoop {
     // 8. Persist new messages
     this.sessions.appendMessages(sessionId, newMessages);
 
-    // 9. Emit outbound message
+    // 9. Apply outbound guardrails
+    if (this.permissionManager) {
+      const guardrail = this.permissionManager.checkModelGuardrails(finalText);
+      finalText = guardrail.content;
+    }
+
+    // 10. Emit outbound message
     const outbound = {
       sessionId,
       channelId,

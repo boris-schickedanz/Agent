@@ -7,8 +7,7 @@ export class ConsoleAdapter extends AdapterInterface {
     this.eventBus = eventBus;
     this.config = config;
     this.rl = null;
-    this._userId = 'console-user';
-    this._sessionId = `console:${this._userId}`;
+    this._userId = config.consoleUserId || 'console-user';
   }
 
   get channelId() {
@@ -46,7 +45,7 @@ export class ConsoleAdapter extends AdapterInterface {
   normalizeInbound(text) {
     return {
       id: `console_${Date.now()}`,
-      sessionId: this._sessionId,
+      sessionId: `console:${this._userId}`,
       channelId: 'console',
       userId: this._userId,
       userName: 'Console User',

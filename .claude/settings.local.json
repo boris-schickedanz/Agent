@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e \":*)"
+      "Bash(node -e \":*)",
+      "Bash(find 'c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/test' -type f \\\\\\(-name *.test.js -o -name *.spec.js \\\\\\))",
+      "Bash(find 'c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/test' -type f \\\\\\(-name *.js \\\\\\))",
+      "Bash(find 'c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src' -type f -name *.js)",
+      "Bash(npm test:*)"
     ]
   }
 }

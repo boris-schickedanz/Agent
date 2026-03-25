@@ -11,25 +11,51 @@ export class SessionManager {
         ON CONFLICT(id) DO UPDATE SET updated_at = unixepoch()
       `),
       get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
+      getAlias: db.prepare(
+        'SELECT canonical_id FROM user_aliases WHERE adapter_user_id = ? AND channel_id = ?'
+      ),
     };
   }
 
-  getSessionKey(userId, channelId) {
-    return `${channelId}:${userId}`;
+  /**
+   * Resolve an adapter-specific userId to a canonical userId.
+   * Checks user_aliases table; falls back to channelId:adapterUserId.
+   */
+  resolveCanonicalUserId(adapterUserId, channelId) {
+    const row = this._stmts.getAlias.get(adapterUserId, channelId);
+    return row ? row.canonical_id : `${channelId}:${adapterUserId}`;
   }
 
-  getOrCreate(userId, channelId, userName = null) {
-    const id = this.getSessionKey(userId, channelId);
+  /**
+   * Resolve the canonical sessionId from a normalized message.
+   * - Group messages (adapter sessionId contains ":group:"): group:telegram:{chatId}
+   * - Individual messages: user:{canonicalUserId}
+   */
+  resolveSessionId(normalizedMessage) {
+    const { sessionId, userId, channelId } = normalizedMessage;
 
-    if (this._sessions.has(id)) {
-      return this._sessions.get(id);
+    // Group chats stay isolated to their channel
+    if (sessionId && sessionId.includes(':group:')) {
+      // Extract the group portion: "telegram:group:12345" -> "group:telegram:12345"
+      const parts = sessionId.split(':group:');
+      return `group:${parts[0]}:${parts[1]}`;
+    }
+
+    // Individual chats use canonical userId for cross-adapter continuity
+    const canonicalId = this.resolveCanonicalUserId(userId, channelId);
+    return `user:${canonicalId}`;
+  }
+
+  getOrCreate(sessionId, userId, channelId, userName = null) {
+    if (this._sessions.has(sessionId)) {
+      return this._sessions.get(sessionId);
     }
 
     // Persist to DB
-    this._stmts.upsert.run(id, userId, channelId, JSON.stringify({ userName }));
+    this._stmts.upsert.run(sessionId, userId, channelId, JSON.stringify({ userName }));
 
     const session = {
-      id,
+      id: sessionId,
       userId,
       channelId,
       userName,
@@ -37,7 +63,7 @@ export class SessionManager {
       lastUserMessage: null,
     };
 
-    this._sessions.set(id, session);
+    this._sessions.set(sessionId, session);
     return session;
   }
 

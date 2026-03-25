@@ -24,13 +24,14 @@ export function normalizeMessage(msg) {
 
 export function normalizeCallbackQuery(query) {
   const msg = query.message;
+  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
   const chatId = String(msg.chat.id);
   const userId = String(query.from.id);
   const userName = [query.from.first_name, query.from.last_name].filter(Boolean).join(' ') || 'Unknown';
 
   return {
     id: String(query.id),
-    sessionId: `telegram:${chatId}`,
+    sessionId: isGroup ? `telegram:group:${chatId}` : `telegram:${chatId}`,
     channelId: 'telegram',
     userId,
     userName,

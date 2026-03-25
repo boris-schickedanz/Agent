@@ -2,9 +2,10 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 export class HeartbeatScheduler {
-  constructor(agentLoop, sessionManager, config, logger) {
+  constructor(agentLoop, sessionManager, db, config, logger) {
     this.agentLoop = agentLoop;
     this.sessionManager = sessionManager;
+    this.db = db;
     this.config = config;
     this.logger = logger;
     this._interval = null;
@@ -18,6 +19,11 @@ export class HeartbeatScheduler {
     }
 
     if (this.config.heartbeatIntervalMs <= 0) return;
+
+    // Ensure the system user has admin role so heartbeat can use all tools
+    this.db.prepare(
+      'INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET role = ?'
+    ).run('system', 'heartbeat', 'admin', 'admin');
 
     this._interval = setInterval(() => {
       this.tick().catch(err => {
@@ -63,7 +69,10 @@ export class HeartbeatScheduler {
     this.logger.info({ taskCount: tasks.length }, 'Heartbeat tick');
 
     try {
-      await this.agentLoop.processMessage(heartbeatMessage);
+      const result = await this.agentLoop.processMessage(heartbeatMessage);
+      if (result?.content) {
+        this.logger.info({ content: result.content.substring(0, 500) }, 'Heartbeat completed');
+      }
     } catch (err) {
       this.logger.error({ err: err.message }, 'Heartbeat processing failed');
     }
