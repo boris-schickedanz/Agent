@@ -199,7 +199,79 @@ List all active background processes.
 **Input:** none.
 **Output:** Table of active processes with ID, label, command, status, uptime.
 
-### 2.3 Terminal Session Manager (Future — Phase 2)
+### 2.4 Container Sandbox (Optional Shell Isolation)
+
+When `SHELL_CONTAINER` is enabled, the ProcessManager executes all shell commands inside a lightweight container instead of directly on the host. This provides process-level and filesystem-level isolation as a defense-in-depth layer on top of the path-based Sandbox (Spec 16) and the Approval Workflow (Spec 19).
+
+**Why only shell commands?** The agent process itself is trusted code — containerizing it adds deployment friction (volume mounts, networking, port mapping) for no security benefit. The untrusted part is what the LLM tells the shell to do. Isolating just the shell commands gives real protection with zero impact on the agent's architecture.
+
+**How it works:**
+
+When `SHELL_CONTAINER` is set, `ProcessManager` maintains a long-lived sandbox container with the workspace mounted. Commands are executed via `container exec` instead of direct `child_process.spawn()`.
+
+```js
+// ProcessManager.run() — internal dispatch
+if (this.containerMode) {
+  // Execute inside the sandbox container
+  return this._runInContainer(command, { cwd, env, timeoutMs, maxOutput });
+} else {
+  // Execute directly on the host
+  return this._runDirect(command, { cwd, env, timeoutMs, maxOutput });
+}
+```
+
+**Container lifecycle:**
+
+```js
+// On startup (if SHELL_CONTAINER is enabled):
+//   1. Build/pull the sandbox image (once)
+//   2. Start a persistent container with workspace mounted
+//
+// On each run_command:
+//   container exec agentcore-sandbox sh -c "cd /workspace/subdir && <command>"
+//
+// On shutdown:
+//   container stop agentcore-sandbox
+```
+
+**Sandbox container image** (`Containerfile.sandbox`):
+
+```dockerfile
+FROM node:22-alpine
+RUN apk add --no-cache git python3 make g++
+WORKDIR /workspace
+```
+
+A minimal image with common build tools. The workspace directory is bind-mounted at runtime so the container sees the same files as the host.
+
+**Container startup** (handled by ProcessManager):
+
+```bash
+container run -d --name agentcore-sandbox \
+  -v ${WORKSPACE_DIR}:/workspace \
+  agentcore-sandbox \
+  sleep infinity
+```
+
+**Platform support:**
+
+| Platform | Container runtime | Notes |
+|----------|------------------|-------|
+| macOS (Apple Silicon) | Apple Containers | Native, near-native performance |
+| macOS / Linux | Podman | Rootless, no daemon |
+| Any | Docker | Works everywhere |
+
+The `SHELL_CONTAINER_RUNTIME` config selects the CLI (`container`, `podman`, or `docker`). Default: auto-detect.
+
+**Configuration:**
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `SHELL_CONTAINER` | `false` | Enable container-sandboxed shell execution |
+| `SHELL_CONTAINER_RUNTIME` | auto | Container CLI: `container`, `podman`, or `docker` |
+| `SHELL_CONTAINER_IMAGE` | `agentcore-sandbox` | Image name for the sandbox container |
+
+### 2.5 Terminal Session Manager (Future — Phase 2)
 
 **File:** `src/process/terminal-session-manager.js`
 **Class:** `TerminalSessionManager`
@@ -263,6 +335,9 @@ await processManager.shutdownAll();
 | Background processes capped at 10 | Prevents resource exhaustion. |
 | Admin-only until approval workflow | Shell execution is the highest-risk capability. |
 | SIGTERM → SIGKILL escalation | Gives processes a chance to clean up gracefully. |
+| Container sandbox isolates shell commands, not the agent | The agent is trusted code. Only LLM-driven shell commands are untrusted. Isolating just the shell avoids deployment friction while providing real protection. |
+| Long-lived sandbox container | Avoids per-command container startup overhead. `container exec` into a running container is near-instant. |
+| Auto-detect container runtime | Works with Apple Containers, Podman, or Docker — whatever the user has installed. |
 
 ## 6. Extension Points
 
@@ -270,3 +345,4 @@ await processManager.shutdownAll();
 - **Command allowlisting:** Configurable whitelist of safe commands that skip approval (e.g., `npm test`, `git status`).
 - **Terminal sessions (Phase 2):** Persistent tmux/ConPTY sessions for interactive workflows.
 - **Output streaming:** Stream shell output to the user in real-time via adapter streaming events.
+- **Container network isolation:** Disable outbound network in the sandbox container for maximum security (agent brokers HTTP requests through host).

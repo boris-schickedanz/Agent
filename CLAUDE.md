@@ -8,8 +8,9 @@ All features and changes follow this sequence:
 
 1. **Spec first** — Write a new spec in `spec/` (next available number, e.g. `11-feature-name.md`) describing the feature: motivation, design, API surface, data model changes, and affected components. Add it to the table in `spec/README.md`.
 2. **Implementation plan** — Create a step-by-step plan (can be a section within the spec or a separate document). Get alignment before writing code.
-3. **Implement** — Build according to the plan and spec.
-4. **Update existing docs** — If the new feature changes behaviour described in other specs, update those specs and `spec/README.md` to stay consistent. Outdated specs that no longer apply should be marked `ARCHIVED` in filename and moved to the Archived table.
+3. **Test Driven Design** - Implement tests first according to the plan and spec.
+4. **Implement** — Build according to the plan and spec. Make sure the tests you created previously run smoothly.
+5. **Update existing docs** — If the new feature changes behaviour described in other specs, update those specs and `spec/README.md` to stay consistent. Outdated specs that no longer apply should be marked `ARCHIVED` in filename and moved to the Archived table.
 
 Specs in `spec/` are the single source of truth. Code should match specs; when they diverge, update the spec or fix the code — never leave them inconsistent.
 

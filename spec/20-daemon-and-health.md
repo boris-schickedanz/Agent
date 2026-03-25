@@ -6,9 +6,24 @@
 
 Enable AgentCore to run as an always-on service that survives reboots, crashes, and disconnections. Provide health monitoring endpoints for operational visibility. Enhance the scheduler for per-task independent execution.
 
-## 2. Components
+## 2. Deployment Model
 
-### 2.1 PM2 Ecosystem Configuration
+AgentCore is a plain Node.js application — it runs anywhere Node.js runs (macOS, Linux, Windows). The primary target is **Apple Silicon Macs**.
+
+There is one way to run it:
+
+| Mode | Command |
+|------|---------|
+| **Foreground** | `npm start` or `agentcore start` |
+| **Daemon** (crash-safe, boot-persistent) | `agentcore start --daemon` (uses PM2 under the hood) |
+
+PM2 is the single daemon strategy — cross-platform (macOS, Linux, Windows), battle-tested, zero custom code.
+
+Shell command isolation via containers is an optional security layer, configured in the ProcessManager (see [Spec 18 §2.4](18-shell-execution.md)).
+
+## 3. Components
+
+### 3.1 PM2 Ecosystem Configuration
 
 **File:** `ecosystem.config.cjs` (repo root)
 
@@ -35,7 +50,7 @@ module.exports = {
 };
 ```
 
-**Usage:**
+The CLI (`agentcore start --daemon`) wraps these PM2 commands:
 
 ```bash
 pm2 start ecosystem.config.cjs     # Start
@@ -46,45 +61,9 @@ pm2 logs agentcore                  # View logs
 pm2 restart agentcore               # Restart
 ```
 
-### 2.2 Docker Configuration
+> **Advanced (macOS):** Users who prefer launchd over PM2 can write a standard `.plist` — AgentCore has no special launchd integration, it's just `node src/index.js` with `KeepAlive` and `RunAtLoad`.
 
-**File:** `Dockerfile`
-
-```dockerfile
-FROM node:22-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --production
-COPY . .
-RUN mkdir -p /app/data /app/workspace /app/logs
-VOLUME ["/app/data", "/app/workspace"]
-EXPOSE 9090
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:9090/health || exit 1
-CMD ["node", "src/index.js"]
-```
-
-**File:** `docker-compose.yml`
-
-```yaml
-services:
-  agentcore:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./data:/app/data
-      - ./workspace:/app/workspace
-    env_file: .env
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-### 2.3 Health Endpoint
+### 3.2 Health Endpoint
 
 **File:** `src/web/health.js`
 **Class:** `HealthServer`
@@ -164,7 +143,7 @@ const server = http.createServer((req, res) => {
 });
 ```
 
-### 2.4 Enhanced Scheduler
+### 3.3 Enhanced Scheduler
 
 **File:** `src/scheduler/scheduler.js`
 **Class:** `TaskScheduler`
@@ -228,7 +207,7 @@ createExecutionRequest({
 });
 ```
 
-## 3. Configuration
+## 4. Configuration
 
 | Env var | Default | Description |
 |---------|---------|-------------|
@@ -237,7 +216,7 @@ createExecutionRequest({
 
 Added to `src/config.js`.
 
-## 4. Integration (src/index.js)
+## 5. Integration (src/index.js)
 
 New phase after adapters:
 
@@ -255,18 +234,18 @@ scheduler.loadTasks();
 scheduler.start();
 ```
 
-## 5. Design Decisions
+## 6. Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| PM2 (not custom daemon) | Battle-tested, zero code needed. Handles restart, logs, boot persistence. |
-| Docker as optional alternative | Clean isolation for VPS deployments. Volumes preserve state. |
+| PM2 as the single daemon strategy | Battle-tested, cross-platform (macOS/Linux/Windows), zero custom code. Handles restart, logs, boot persistence. CLI wraps PM2 so users never need to learn it. |
+| No container for the agent itself | The agent is trusted code — containerizing it adds friction (volume mounts, networking) without security benefit. Shell command isolation is handled at the ProcessManager level (Spec 18). |
 | Health on localhost only | Prevents accidental exposure. Use SSH tunnel or reverse proxy for remote access. |
 | No Express for health | One endpoint doesn't justify a framework dependency. |
 | Per-task execution | One task's failure or token consumption shouldn't affect others. |
 | Backward-compatible scheduler | Existing HEARTBEAT.md setups continue working. |
 
-## 6. Extension Points
+## 7. Extension Points
 
 - **Web dashboard (Spec 22):** Health server becomes the foundation for a full REST API.
 - **Webhook triggers:** Accept POST requests to trigger tasks on-demand.

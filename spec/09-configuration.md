@@ -38,6 +38,20 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `PRUNE_TAIL` | `pruneTail` | number | No | `1500` | Chars to keep from end of pruned tool result |
 | `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean | No | `false` | If `true`, new users get `user` role. If `false`, they get `pending` (restricted). |
 | `MASTER_KEY` | `masterKey` | string | No | `''` | Encryption key for the API key store. Falls back to `ANTHROPIC_API_KEY` if empty. |
+| | | | | | |
+| **Workspace & Security** (Spec 16) | | | | | |
+| `WORKSPACE_DIR` | `workspaceDir` | string | No | `'./workspace'` | Root directory for file/shell operations. Resolved to absolute path. |
+| `WORKSPACE_READONLY_DIRS` | `workspaceReadOnlyDirs` | string[] | No | `[]` | Comma-separated list of read-only subdirectories (relative to WORKSPACE_DIR). |
+| `AUDIT_LOG_ENABLED` | `auditLogEnabled` | boolean | No | `true` | Enable/disable audit logging of tool executions. |
+| | | | | | |
+| **Shell Execution** (Spec 18) | | | | | |
+| `SHELL_CONTAINER` | `shellContainer` | boolean | No | `false` | Execute shell commands inside a container instead of directly on host. |
+| `SHELL_CONTAINER_RUNTIME` | `shellContainerRuntime` | string | No | auto | Container CLI: `container` (Apple), `podman`, or `docker`. Auto-detects if unset. |
+| `SHELL_CONTAINER_IMAGE` | `shellContainerImage` | string | No | `'agentcore-sandbox'` | Image name for the sandbox container. |
+| | | | | | |
+| **Health & Daemon** (Spec 20) | | | | | |
+| `HEALTH_PORT` | `healthPort` | number | No | `9090` | Health endpoint port. Set to `0` to disable. |
+| `HEALTH_BIND` | `healthBind` | string | No | `'127.0.0.1'` | Bind address for health endpoint (localhost only by default). |
 
 ## 4. Type Coercion
 
@@ -71,7 +85,7 @@ Components that receive config via constructor injection (e.g., `AgentLoop`, `Ra
 
 | Decision | Rationale |
 |----------|-----------|
-| Environment variables over config files | Standard 12-factor app practice. Works with Docker, CI/CD, and cloud platforms without file management. |
+| Environment variables over config files | Standard 12-factor app practice. Works with containers, CI/CD, and cloud platforms without file management. |
 | `Object.freeze()` | Prevents components from accidentally mutating shared configuration. |
 | `dotenv` for local dev | Convenience for development. Not loaded in production if env vars are already set. |
 | Sensible defaults for everything except API key | The agent should start with minimal configuration. Only the API key is truly required. |
