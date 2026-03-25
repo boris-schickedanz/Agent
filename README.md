@@ -43,6 +43,8 @@ All configuration is via environment variables (or `.env` file):
 
 ## Architecture
 
+The system is split into a **host** (control plane) and a **runtime** (execution plane), connected by a **runner** interface.
+
 ```
 ┌─────────────┐     ┌─────────────┐
 │   Telegram   │     │   Console   │    ...adapters
@@ -52,17 +54,16 @@ All configuration is via environment variables (or `.env` file):
        ▼                    ▼
 ┌──────────────────────────────────┐
 │            EventBus              │  message:inbound / message:outbound
-└──────┬──────────────────┬────────┘
-       │                  │
-       ▼                  ▼
-┌─────────────┐    ┌─────────────┐
-│ Rate Limiter│    │ Permission  │   Security gates
-│             │    │  Manager    │
-└──────┬──────┘    └──────┬──────┘
-       │                  │
-       ▼                  ▼
+└──────────────┬───────────────────┘
+               ▼
 ┌──────────────────────────────────┐
-│   Input Sanitizer                │
+│        Security Pipeline         │
+│  Rate Limiter → Permissions      │
+│  → Input Sanitizer               │
+└──────────────┬───────────────────┘
+               ▼
+┌──────────────────────────────────┐
+│  Host Dispatcher (buildRequest)  │  ← session, tools, memory, skills
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐
@@ -70,23 +71,30 @@ All configuration is via environment variables (or `.env` file):
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐
-│         Agent Loop (ReAct)       │
+│      LocalRunner.execute()       │  ← timeout, cancellation, dedup
+└──────────────┬───────────────────┘
+               ▼
+┌──────────────────────────────────┐
+│     Agent Loop (ReAct Runtime)   │
 │  ┌──────────┐  ┌──────────────┐  │
 │  │  Prompt   │  │     Tool     │  │
 │  │  Builder  │  │   Executor   │  │
 │  └──────────┘  └──────────────┘  │
-│  ┌──────────┐  ┌──────────────┐  │
-│  │  Context  │  │   Session    │  │
-│  │ Compactor │  │   Manager    │  │
-│  └──────────┘  └──────────────┘  │
+│  ┌──────────────────────────────┐ │
+│  │     Context Compactor        │ │
+│  └──────────────────────────────┘ │
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐
 │   LLM Provider (Anthropic)       │
 └──────────────────────────────────┘
+               ▼
+┌──────────────────────────────────┐
+│ Host Dispatcher (finalize)       │  ← guardrails, persist, deliver
+└──────────────────────────────────┘
 ```
 
-See `spec/` for complete specifications.
+See [`spec/`](spec/README.md) for complete specifications.
 
 ## Project Structure
 
@@ -96,17 +104,23 @@ agent-core/
 │   ├── index.js                 # Entry point and component wiring
 │   ├── config.js                # Environment-based configuration
 │   ├── core/
-│   │   ├── agent-loop.js        # ReAct loop
+│   │   ├── agent-loop.js        # ReAct loop (runtime)
+│   │   ├── host-dispatcher.js   # Request building and result finalization (host)
 │   │   ├── message-queue.js     # Per-session serial queue
 │   │   ├── session-manager.js   # Session lifecycle
-│   │   └── event-bus.js         # Internal pub/sub
+│   │   ├── event-bus.js         # Internal pub/sub
+│   │   └── runner/
+│   │       ├── agent-runner.js      # Abstract runner interface
+│   │       ├── local-runner.js      # In-process runner wrapping AgentLoop
+│   │       ├── execution-request.js # Request shape and validation
+│   │       └── execution-result.js  # Result shape and status codes
 │   ├── brain/
 │   │   ├── llm-provider.js      # Abstract LLM interface
 │   │   ├── anthropic-provider.js
 │   │   ├── prompt-builder.js    # System prompt assembly
 │   │   └── context-compactor.js # Token management
 │   ├── tools/
-│   │   ├── tool-registry.js     # Tool registration
+│   │   ├── tool-registry.js     # Tool registration (with class field)
 │   │   ├── tool-executor.js     # Execution with timeout
 │   │   ├── tool-schema.js       # JSON Schema validation
 │   │   └── built-in/            # system, http, memory tools
@@ -152,19 +166,20 @@ agent-core/
 
 ## Specifications
 
-The `spec/` directory contains the authoritative specifications for every subsystem. These serve as the single source of truth for development:
+The [`spec/`](spec/README.md) directory contains the authoritative specifications for every subsystem:
 
 | Spec | Scope |
 |------|-------|
-| `spec/01-runtime-core.md` | Agent loop, event bus, message queue, sessions, startup |
-| `spec/02-brain.md` | LLM provider interface, prompt assembly, context compaction |
-| `spec/03-tools.md` | Tool system: registry, executor, schema validation, built-in tools |
-| `spec/04-memory.md` | Conversation history, persistent memory, FTS5 search |
-| `spec/05-skills.md` | Skill format, loading, activation, lifecycle |
-| `spec/06-adapters.md` | Adapter interface, message contract, console and Telegram adapters |
-| `spec/07-security.md` | Three-layer model, rate limiting, sanitization, encryption |
-| `spec/08-database.md` | Schema, migrations, connection management |
-| `spec/09-configuration.md` | All environment variables, defaults, validation |
+| `01-runtime-core` | Agent loop, event bus, message queue, sessions, host dispatcher, runner layer, startup |
+| `02-brain` | LLM provider interface, prompt assembly, context compaction |
+| `03-tools` | Tool registry, executor, schema validation, built-in tools, tool class/trust boundaries |
+| `04-memory` | Conversation history, persistent memory, FTS5 search |
+| `05-skills` | Skill format, loading, activation, lifecycle |
+| `06-adapters` | Adapter interface, message contract, console and Telegram adapters |
+| `07-security` | Three-layer model, rate limiting, sanitization, encryption |
+| `08-database` | Schema, migrations, connection management |
+| `09-configuration` | All environment variables, defaults, validation |
+| `10-host-runtime-boundary` | Host/runtime split, runner interface, ExecutionRequest/Result, orchestration |
 
 ## Adding a New Adapter
 

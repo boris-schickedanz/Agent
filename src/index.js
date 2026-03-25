@@ -12,6 +12,8 @@ import { MemorySearch } from './memory/memory-search.js';
 import { SessionManager } from './core/session-manager.js';
 import { MessageQueue } from './core/message-queue.js';
 import { AgentLoop } from './core/agent-loop.js';
+import { LocalRunner } from './core/runner/local-runner.js';
+import { HostDispatcher } from './core/host-dispatcher.js';
 import { AdapterRegistry } from './adapters/adapter-registry.js';
 import { ConsoleAdapter } from './adapters/console/console-adapter.js';
 import { InputSanitizer } from './security/input-sanitizer.js';
@@ -34,7 +36,14 @@ async function main() {
   logger.info('Database initialized');
 
   // Phase 2: Brain
-  const llmProvider = new AnthropicProvider(config, logger);
+  let llmProvider;
+  if (config.llmProvider === 'ollama') {
+    const { OllamaProvider } = await import('./brain/ollama-provider.js');
+    llmProvider = new OllamaProvider(config, logger);
+    logger.info({ model: config.ollamaModel, host: config.ollamaHost }, 'Using Ollama provider');
+  } else {
+    llmProvider = new AnthropicProvider(config, logger);
+  }
   const contextCompactor = new ContextCompactor(llmProvider, config);
 
   // Phase 3: Memory
@@ -57,25 +66,44 @@ async function main() {
   // Phase 6: Prompt Builder
   const promptBuilder = new PromptBuilder(config, memorySearch);
 
-  // Phase 7: Core Loop
+  // Phase 7: Core — AgentLoop (runtime) + LocalRunner + HostDispatcher
   const sessionManager = new SessionManager(db, conversationMemory);
   const toolExecutor = new ToolExecutor(toolRegistry, toolPolicy, logger);
   const agentLoop = new AgentLoop({
     llmProvider,
     promptBuilder,
     toolExecutor,
-    toolRegistry,
-    toolPolicy,
     contextCompactor,
+    logger,
+    config,
+  });
+  const runner = new LocalRunner({ agentLoop, logger });
+  const messageQueue = new MessageQueue(runner, logger);
+
+  // Phase 8: Skills (loaded dynamically if directory exists)
+  let skillLoader = null;
+  try {
+    const { SkillLoader } = await import('./skills/skill-loader.js');
+    skillLoader = new SkillLoader(toolRegistry, logger);
+    await skillLoader.loadAll('./skills');
+  } catch {
+    // Skills are optional
+  }
+
+  // Phase 9: Host Dispatcher
+  const dispatcher = new HostDispatcher({
     sessionManager,
+    toolPolicy,
+    toolRegistry,
+    memorySearch,
+    skillLoader,
     permissionManager,
     eventBus,
     logger,
     config,
   });
-  const messageQueue = new MessageQueue(agentLoop, logger);
 
-  // Phase 8: Wire event bus - inbound message processing
+  // Phase 10: Wire event bus — inbound message processing
   eventBus.on('message:inbound', async (message) => {
     const start = Date.now();
 
@@ -118,19 +146,20 @@ async function main() {
       logger.warn({ userId: message.userId, patterns: injection.patterns }, 'Potential prompt injection detected');
     }
 
-    // Enqueue
+    // Build request, enqueue, and finalize
     try {
-      const canonicalSessionId = sessionManager.resolveSessionId(sanitized);
-      const result = await messageQueue.enqueue(canonicalSessionId, sanitized);
+      const request = dispatcher.buildRequest(sanitized);
+      const result = await messageQueue.enqueue(request.sessionId, request);
       if (result) {
-        result.metadata.processingTimeMs = Date.now() - start;
+        const outbound = await dispatcher.finalize(request, result, message);
+        outbound.metadata.processingTimeMs = Date.now() - start;
       }
     } catch (err) {
       logger.error({ err: err.message, sessionId: message.sessionId }, 'Processing failed');
     }
   });
 
-  // Phase 9: Adapters
+  // Phase 11: Adapters
   const adapterRegistry = new AdapterRegistry(eventBus);
 
   // Telegram adapter (loaded dynamically if token present)
@@ -147,20 +176,10 @@ async function main() {
   // Console adapter (always available)
   adapterRegistry.register(new ConsoleAdapter(eventBus, config));
 
-  // Phase 10: Skills (loaded dynamically if directory exists)
-  try {
-    const { SkillLoader } = await import('./skills/skill-loader.js');
-    const skillLoader = new SkillLoader(toolRegistry, logger);
-    await skillLoader.loadAll('./skills');
-    agentLoop.skillLoader = skillLoader;
-  } catch {
-    // Skills are optional
-  }
-
-  // Phase 11: Heartbeat (loaded dynamically if configured)
+  // Phase 12: Heartbeat (loaded dynamically if configured)
   try {
     const { HeartbeatScheduler } = await import('./heartbeat/heartbeat-scheduler.js');
-    const heartbeat = new HeartbeatScheduler(agentLoop, sessionManager, db, config, logger);
+    const heartbeat = new HeartbeatScheduler(runner, toolRegistry, sessionManager, db, config, logger);
     heartbeat.start();
   } catch {
     // Heartbeat is optional
@@ -178,6 +197,7 @@ async function main() {
   const shutdown = async () => {
     logger.info('Shutting down...');
     messageQueue.shutdown();
+    await runner.shutdown();
     await adapterRegistry.stopAll();
     db.close();
     process.exit(0);

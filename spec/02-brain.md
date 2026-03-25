@@ -82,7 +82,8 @@ Assembles the complete system prompt from multiple sources.
 async build(
   session: Session,
   availableTools: ToolSchema[],
-  skillInstructions?: string
+  skillInstructions?: string,
+  memorySnippets?: MemorySnippet[]
 ): Promise<string>
 ```
 
@@ -90,13 +91,13 @@ async build(
 
 1. **Agent personality** — contents of `SOUL.md` (cached after first read, falls back to a default string if file missing)
 2. **Current context** — date/time (ISO), session ID, user name, channel ID
-3. **Relevant memories** — FTS5 search of `session.lastUserMessage` against persistent memory (top 5 results, each truncated to 300 chars)
+3. **Relevant memories** — pre-searched by the host (`HostDispatcher`) and passed as `memorySnippets`. Each snippet is truncated to 300 chars by the host before inclusion.
 4. **Tool count** — brief note about available tool count
 5. **Skill instructions** — optional, injected when a skill is active
 
 **Caching:** `SOUL.md` is read once and cached for the process lifetime. To reload, restart the agent.
 
-**Error handling:** Memory search failures are silently caught (memory is a non-critical enhancement).
+**Note:** Memory search was previously performed inside `build()` by calling `memorySearch.search()`. After the host/runtime boundary refactor, memory search is performed by the host (`HostDispatcher.buildRequest()`) and the results are passed into the runtime via the `ExecutionRequest`. The `PromptBuilder` now receives pre-searched snippets as a parameter.
 
 ### 2.4 Context Compactor
 

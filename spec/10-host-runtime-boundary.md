@@ -1,173 +1,306 @@
-# Spec 10 — Host/Runtime Boundary
+# Spec 10 — Host & Runner Architecture
 
-> Status: **Draft** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
 
 ## 1. Purpose
 
-Define the architectural split between the **host** (control plane) and the **runtime** (execution plane) within AgentCore. The host owns adapters, security, persistence, scheduling, and delivery. The runtime owns prompt construction, the ReAct loop, and tool execution. A single **runner** abstraction bridges the two.
+Define the architectural split between the **host** (control plane) and the **runtime** (execution plane) within AgentCore, and the contracts that bridge them: the runner interface, execution request/result shapes, host dispatcher, orchestration flow, and lifecycle management.
 
-This spec is the foundation for specs 11–14 and blocks all implementation work.
-
-## 2. Goals
-
-1. Separate control-plane concerns (ingress, egress, identity, policy, persistence, scheduling) from execution concerns (LLM calls, tool invocations, context management).
-2. Introduce a runner interface so the host never calls `AgentLoop.processMessage` directly.
-3. Keep the first milestone behaviorally identical to the current system by providing a `LocalRunner` that wraps the existing `AgentLoop`.
-4. Make the architecture forward-compatible with remote, containerized, or sandboxed runners without requiring them in the first step.
-
-## 3. Non-Goals
-
-- Containerization or sandbox implementation.
-- Multi-runner selection logic or routing.
-- Distributed queue or external orchestrator integration.
-- Changes to the LLM provider interface, adapter interface, or database schema.
-
-## 4. Definitions
+## 2. Definitions
 
 | Term | Definition |
 |------|-----------|
 | **Host** | The long-lived process that owns adapters, the event bus, the security pipeline, the message queue, persistence (SQLite), scheduling, and outbound delivery. It is the only component that communicates with external systems. |
 | **Runtime** | The execution module that receives an `ExecutionRequest`, runs the ReAct loop (LLM calls + tool execution), and returns an `ExecutionResult`. It has no direct access to adapters, the event bus, or persistence stores. |
 | **Runner** | The interface the host uses to invoke the runtime. The host constructs an `ExecutionRequest` and calls `runner.execute(request)`. The runner returns an `ExecutionResult`. |
-| **LocalRunner** | The initial runner implementation. It instantiates or wraps the existing `AgentLoop` in-process and translates between `ExecutionRequest`/`ExecutionResult` and the current `NormalizedMessage`/`OutboundMessage` shapes. |
-| **ExecutionRequest** | A self-contained description of work the host wants the runtime to perform. Defined in spec 11. |
-| **ExecutionResult** | The outcome of a runtime execution. Defined in spec 11. |
+| **LocalRunner** | The current runner implementation. Wraps the existing `AgentLoop` in-process and translates between `ExecutionRequest`/`ExecutionResult` and the loop's internal format. |
+| **HostDispatcher** | The host-side component that builds `ExecutionRequest` objects from inbound messages and finalizes `ExecutionResult` objects into outbound messages. |
 
-## 5. Ownership Matrix
+## 3. Ownership Matrix
 
-The following table classifies every major responsibility in the current system as host-owned or runtime-owned after the refactor.
+| Responsibility | Owner | Location |
+|----------------|-------|----------|
+| Adapter lifecycle (start/stop) | Host | `AdapterRegistry` |
+| Inbound message normalization | Host | Adapters |
+| Security pipeline (rate limit, permissions, sanitization) | Host | `index.js` event handler |
+| Message queueing and per-session serialization | Host | `MessageQueue` |
+| Session resolution and creation | Host | `HostDispatcher` → `SessionManager` |
+| Conversation history loading | Host | `HostDispatcher` → `SessionManager` |
+| Tool resolution (policy → schemas) | Host | `HostDispatcher` → `ToolPolicy`, `ToolRegistry` |
+| Memory search | Host | `HostDispatcher` → `MemorySearch` |
+| Skill trigger matching | Host | `HostDispatcher` → `SkillLoader` |
+| System prompt assembly | Runtime | `PromptBuilder` (from data in request) |
+| ReAct loop (LLM + tool iteration) | Runtime | `AgentLoop` |
+| Tool execution | Runtime | `ToolExecutor` |
+| Context compaction | Runtime | `ContextCompactor` |
+| Outbound guardrails | Host | `HostDispatcher` → `PermissionManager` |
+| Conversation history persistence | Host | `HostDispatcher` → `SessionManager` |
+| Outbound message emission | Host | `HostDispatcher` → `EventBus` |
+| Heartbeat scheduling | Host | `HeartbeatScheduler` → `Runner` |
+| Graceful shutdown | Host | `index.js` |
 
-| Responsibility | Owner | Current Location | Notes |
-|----------------|-------|------------------|-------|
-| Adapter lifecycle (start/stop) | Host | `index.js`, `AdapterRegistry` | Unchanged |
-| Inbound message normalization | Host | Adapters | Unchanged |
-| Security pipeline (rate limit, permissions, sanitization) | Host | `index.js` event handler | Unchanged |
-| Message queueing and serialization | Host | `MessageQueue` | Unchanged |
-| Session resolution and creation | Host | `SessionManager` | Moves from agent loop to host; host provides session context in `ExecutionRequest` |
-| Conversation history loading | Host | `SessionManager` → `ConversationMemory` | Host loads history and includes it in `ExecutionRequest` |
-| Persistent memory (storage and FTS index) | Host | `PersistentMemory`, `MemorySearch` | Host owns the store; runtime accesses it through brokered tools (see spec 13) |
-| System prompt assembly | Runtime | `PromptBuilder` | Runtime builds the prompt from data provided in the request |
-| Tool resolution (policy → schemas) | Host | `ToolPolicy`, `ToolRegistry` | Host resolves allowed tools and includes schemas in the request |
-| ReAct loop (LLM + tool iteration) | Runtime | `AgentLoop` | Core runtime responsibility |
-| Tool execution | Runtime | `ToolExecutor` | Executes within the runtime; some tools may be brokered (spec 13) |
-| Context compaction | Runtime | `ContextCompactor` | Operates on the in-flight message array |
-| Outbound message emission | Host | `AgentLoop` → `EventBus` | Moves from agent loop to host; host emits after runner returns |
-| Conversation history persistence | Host | `SessionManager` → `ConversationMemory` | Host persists after runner returns |
-| Outbound guardrails | Host | `PermissionManager.checkModelGuardrails` | Host applies after runner returns |
-| Heartbeat scheduling | Host | `HeartbeatScheduler` | Host creates `ExecutionRequest` objects instead of calling `agentLoop.processMessage` |
-| Skill loading | Host | `SkillLoader` | Host loads skills and provides instructions in the request |
-| Graceful shutdown | Host | `index.js` | Unchanged |
+## 4. Architecture Flow
 
-## 6. Architectural Diagrams
-
-### 6.1 Current Flow
+### 4.1 Inbound Message Pipeline
 
 ```
-Adapter → EventBus(message:inbound) → Security Pipeline → MessageQueue → AgentLoop.processMessage()
-                                                                              ↓
-                                                                    Session resolution
-                                                                    History loading
-                                                                    Tool resolution
-                                                                    Prompt building
-                                                                    ReAct loop (LLM + tools)
-                                                                    Persistence
-                                                                    Guardrails
-                                                                              ↓
-                                                                    EventBus(message:outbound) → AdapterRegistry → Adapter
+Adapter → EventBus(message:inbound) → Security Pipeline
+                                           ↓
+                                    HostDispatcher.buildRequest()
+                                      Session resolution
+                                      History loading
+                                      Tool resolution
+                                      Memory search
+                                      Skill matching
+                                           ↓
+                                    MessageQueue.enqueue(sessionId, request)
+                                      (per-session serialization)
+                                           ↓
+                                    LocalRunner.execute(request)
+                                           ↓
+                                      [Runtime]
+                                      Prompt building
+                                      ReAct loop (LLM + tools)
+                                      Context compaction
+                                           ↓
+                                    ExecutionResult returned
+                                           ↓
+                                    HostDispatcher.finalize()
+                                      Guardrails
+                                      Persistence (with guardrailed content)
+                                      EventBus(message:outbound) → Adapter
 ```
 
-Key observation: `AgentLoop` currently handles both runtime concerns (ReAct loop) and host concerns (session resolution, history loading, persistence, guardrails, event emission).
-
-### 6.2 Target Flow
-
-```
-Adapter → EventBus(message:inbound) → Security Pipeline → MessageQueue
-                                                              ↓
-                                                         Host Dispatcher
-                                                              ↓
-                                                    Session resolution
-                                                    History loading
-                                                    Tool resolution
-                                                    Build ExecutionRequest
-                                                              ↓
-                                                    Runner.execute(request)
-                                                              ↓
-                                                         [Runtime]
-                                                    Prompt building
-                                                    ReAct loop (LLM + tools)
-                                                    Context compaction
-                                                              ↓
-                                                    ExecutionResult returned
-                                                              ↓
-                                                         Host Dispatcher
-                                                              ↓
-                                                    Guardrails
-                                                    Persistence
-                                                    EventBus(message:outbound) → AdapterRegistry → Adapter
-```
-
-Key change: the host builds the `ExecutionRequest` before invoking the runner, and handles persistence and delivery after the runner returns.
-
-### 6.3 Heartbeat and Scheduled Tasks (Target)
+### 4.2 Scheduled Tasks
 
 ```
 HeartbeatScheduler.tick()
-        ↓
-  Parse HEARTBEAT.md tasks
-  Build ExecutionRequest (origin: scheduled_task)
-        ↓
-  Runner.execute(request)
-        ↓
-  Host handles result (logging, optional delivery)
+  → Parse HEARTBEAT.md tasks
+  → Build ExecutionRequest (origin: scheduled_task)
+  → Runner.execute(request)
+  → Log result
 ```
 
-The heartbeat no longer calls `agentLoop.processMessage` directly. It produces an `ExecutionRequest` like any other dispatch path.
+The heartbeat builds an `ExecutionRequest` like any other dispatch path. Overlap prevention via `_inFlight` flag skips ticks while a previous execution is running.
 
-### 6.4 Delegated Agent (Future, Target)
+### 4.3 Delegated Agent (Future)
 
 ```
-Host receives delegated-agent request (e.g., from a parent agent or remote trigger)
-        ↓
-  Build ExecutionRequest (origin: delegated_agent)
-        ↓
-  Runner.execute(request)
-        ↓
-  Host handles result (return to caller, persist, deliver)
+Host receives delegation request → Build ExecutionRequest (origin: delegated_agent)
+  → Runner.execute(request) → Return result to caller
 ```
 
-The runner contract supports this without a second runner type. Only the origin field and host-side dispatch logic differ.
+Same runner contract. Only the `origin` field and host-side dispatch logic differ.
 
-## 7. Migration Constraints
+## 5. AgentRunner Interface
 
-1. **LocalRunner preserves current behavior.** The first implementation wraps `AgentLoop` and translates between the new request/result shapes and the existing internal shapes. No behavioral change is observable from any adapter.
-2. **No container requirement.** The boundary is a code-level abstraction in the first step. It may later be reinforced with process isolation or containers.
-3. **Host concerns must not leak into the runner.** The runner must not import `EventBus`, `AdapterRegistry`, `SessionManager`, `ConversationMemory`, or `PersistentMemory` directly. If the runtime needs to access a host resource, it does so through a brokered tool or an explicit parameter in the `ExecutionRequest`.
-4. **Runtime concerns must not leak into the host.** The host must not construct LLM messages, call the LLM provider, or execute tools directly. These are runtime responsibilities.
-5. **Session and history are provided, not fetched.** The runtime receives conversation history and session metadata as part of the `ExecutionRequest`. It does not query the database.
+**File:** `src/core/runner/agent-runner.js`
 
-## 8. Scope Boundary
+```js
+class AgentRunner {
+  async execute(request) { throw new Error('must be implemented'); }
+  async cancel(executionId) { return false; }
+  async shutdown(timeoutMs = 30_000) { /* no-op */ }
+}
+```
 
-This spec defines the conceptual split and ownership. It does not define:
+| Method | Required | Notes |
+|--------|----------|-------|
+| `execute(request)` | Yes | Returns `ExecutionResult`. Rejects duplicate `executionId` with `RunnerUnavailableError`. |
+| `cancel(executionId)` | No | Cooperative cancellation. Returns `true` if initiated, `false` if not found. |
+| `shutdown(timeoutMs)` | No | After shutdown, `execute()` throws `RunnerUnavailableError`. |
 
-- The `ExecutionRequest`/`ExecutionResult` shapes (see spec 11).
-- The runner interface methods (see spec 11).
-- Queueing, parallelism, or scheduling behavior (see spec 12).
-- Tool classification by trust boundary (see spec 13).
-- The implementation sequence (see spec 14).
+## 6. ExecutionRequest
 
-## 9. Design Decisions
+**File:** `src/core/runner/execution-request.js`
+
+A self-contained description of work. The runtime executes using only this data plus its injected dependencies (LLM provider, tool executor).
+
+```js
+{
+  executionId: string,              // UUID v4, generated by host
+  origin: ExecutionOrigin,          // 'user_message' | 'scheduled_task' | 'delegated_agent' | 'maintenance_task'
+  sessionId: string,
+  userId: string,
+  channelId: string,
+  userName: string | null,
+  sessionMetadata: object,
+  history: Message[],               // Pre-loaded by host
+  userContent: string,
+  toolSchemas: AnthropicToolSchema[],
+  allowedToolNames: Set<string> | null,  // null = all tools
+  skillInstructions: string | null,
+  memorySnippets: MemorySnippet[],  // { key, content (≤300 chars), metadata }
+  maxIterations: number,            // Default: 25
+  timeoutMs: number | null,         // null = no limit
+  createdAt: number,                // Unix ms
+}
+```
+
+**Required fields:** `origin`, `sessionId`, `userId`, `channelId`, `userContent`. All others have defaults.
+
+**Validation:** `createExecutionRequest()` factory validates required fields and generates `executionId` / `createdAt` if not provided.
+
+### 6.1 Execution Origins
+
+| Origin | Session | Persistence | Delivery | Timeout |
+|--------|---------|-------------|----------|---------|
+| `user_message` | Real session from adapter | Full | Outbound via adapter | Typically none |
+| `scheduled_task` | Synthetic `heartbeat:system` | Optional | Logged only | Recommended |
+| `delegated_agent` | Inherited or synthetic | Host decides | Returned to caller | Recommended |
+| `maintenance_task` | Synthetic | Typically not persisted | Logged only | Recommended |
+
+## 7. ExecutionResult
+
+**File:** `src/core/runner/execution-result.js`
+
+```js
+{
+  executionId: string,
+  status: ExecutionStatus,
+  content: string,                  // Final text (may be empty on error)
+  newMessages: Message[],           // All messages generated — host persists these
+  toolsUsed: string[],
+  tokenUsage: { inputTokens, outputTokens },
+  iterationCount: number,
+  durationMs: number,
+  error: { code, message, retriable } | null,
+}
+```
+
+### 7.1 ExecutionStatus
+
+| Status | Meaning |
+|--------|---------|
+| `completed` | Final response produced. `error` is `null`. |
+| `max_iterations` | Hit iteration cap. `content` may be partial. |
+| `error` | Runtime or LLM error. `content` may have fallback. |
+| `cancelled` | Cancelled via `cancel()`. |
+| `timeout` | Exceeded `timeoutMs`. |
+
+### 7.2 Error Codes
+
+| Code | Retriable | Typical Cause |
+|------|-----------|---------------|
+| `runner_unavailable` | Yes | Shutting down or at capacity |
+| `runtime_error` | Maybe | Bug in loop or prompt builder |
+| `llm_error` | Yes | API rate limit, server error |
+| `timeout` | Yes | Complex task, slow LLM |
+| `cancelled` | No | Host called `cancel()` |
+| `max_iterations` | No | Multi-step loop |
+
+## 8. LocalRunner
+
+**File:** `src/core/runner/local-runner.js`
+
+Wraps `AgentLoop` in-process. Translates between `ExecutionRequest`/`ExecutionResult` and the loop's internal param/result format.
+
+**Construction:** `new LocalRunner({ agentLoop, logger })`
+
+**State:** `_active: Map<executionId, { cancelled: boolean }>`, `_shuttingDown: boolean`
+
+**`execute()` behavior:**
+1. Reject if shutting down or duplicate `executionId`.
+2. Register in `_active` with a cancellation signal.
+3. Translate request → loop params (history, userContent, toolSchemas, etc.).
+4. If `timeoutMs` set: `Promise.race` with a timer that sets the cancellation signal on expiry.
+5. Call `agentLoop.processMessage(params)`.
+6. Translate loop result → `ExecutionResult` via `createExecutionResult()`.
+7. Remove from `_active`.
+
+**`shutdown()` behavior:** Set `_shuttingDown`, poll `_active` until empty or deadline, then force-cancel remaining.
+
+## 9. HostDispatcher
+
+**File:** `src/core/host-dispatcher.js`
+
+Extracts host concerns into a single orchestration point. Two methods: `buildRequest` (before execution) and `finalize` (after execution).
+
+**Construction:**
+
+```js
+new HostDispatcher({
+  sessionManager, toolPolicy, toolRegistry, memorySearch,
+  skillLoader, permissionManager, eventBus, logger, config,
+})
+```
+
+### 9.1 buildRequest(sanitizedMessage, origin?)
+
+1. `sessionManager.resolveSessionId(message)` + `getOrCreate()`
+2. `sessionManager.loadHistory(sessionId)`
+3. `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas(allowedTools)`
+4. Skill trigger matching (iterate `skillLoader.getLoadedSkills()`)
+5. `memorySearch.search(content, 5)` — truncate each to 300 chars, catch errors silently
+6. Return `createExecutionRequest({ ... })`
+
+### 9.2 finalize(request, result, originalMessage?)
+
+1. **Guardrails** — `permissionManager.checkModelGuardrails(content)` strips markers.
+2. **Persist** — Apply guardrailed content to the last assistant message in `newMessages`, then `sessionManager.appendMessages()`. Skip if no new messages.
+3. **Deliver** — Emit `message:outbound` on EventBus with the original adapter `sessionId` for routing.
+
+## 10. Parallelism and Queueing
+
+### 10.1 Per-Session Serialization
+
+Messages within a single session are processed serially. The `MessageQueue` ensures this: when a request for session S is processing, subsequent requests for S are queued.
+
+### 10.2 Cross-Session Concurrency
+
+Requests for different sessions execute in parallel with no coordination.
+
+### 10.3 Fan-Out Limits (Future)
+
+When delegated agent dispatch is introduced:
+
+| Limit | Default |
+|-------|---------|
+| Max concurrent executions (global) | 10 |
+| Max concurrent executions per session | 1 |
+| Max delegated subtasks per parent | 5 |
+
+## 11. Timeout and Cancellation
+
+**Timeout:** Host sets `timeoutMs` in the request. `LocalRunner` uses `Promise.race` with a timer. On timeout, the cancellation signal is set and the result has `status: 'timeout'`.
+
+**Cancellation:** Host calls `runner.cancel(executionId)`. The runner sets an internal flag checked between ReAct iterations. Cooperative, not preemptive — the current LLM call or tool execution completes first.
+
+**Shutdown propagation:** `messageQueue.shutdown()` stops new requests → `runner.shutdown(timeoutMs)` waits for in-flight work, then force-cancels.
+
+## 12. Persistence Boundaries
+
+| Phase | What is persisted | By whom |
+|-------|-------------------|---------|
+| Before execution | Session record (upsert) | `HostDispatcher` → `SessionManager` |
+| During execution | Nothing | Runtime operates on in-memory data only |
+| After execution | New messages (with guardrailed content) | `HostDispatcher` → `SessionManager` |
+
+**Exception:** `save_memory` tool writes to persistent memory during execution via its handler closure. This is a brokered tool concern — see [Spec 03 §5](03-tools.md).
+
+## 13. Boundary Constraints
+
+1. **Host concerns must not leak into the runner.** The runner must not import `EventBus`, `AdapterRegistry`, `SessionManager`, `ConversationMemory`, or `PersistentMemory`.
+2. **Runtime concerns must not leak into the host.** The host must not construct LLM messages, call the LLM provider, or execute tools directly.
+3. **Session and history are provided, not fetched.** The runtime receives conversation history and session metadata in the `ExecutionRequest`.
+
+## 14. Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| Single runner, not multiple | A single runner contract is sufficient for local, scheduled, and delegated execution. Multiple runners add routing complexity without current justification. |
-| Host loads history before invoking runner | Moves persistence access out of the runtime. The runtime operates on in-memory data only. |
-| Host applies guardrails after runner returns | Keeps output filtering as a host policy concern, not a runtime concern. |
-| Session resolution moves to host | Session identity is a host concern (tied to adapters and persistence). The runtime receives session metadata, not a session key to resolve. |
-| EventBus emission moves to host | The runtime should not know about the event bus or adapter routing. The host emits `message:outbound` after receiving the `ExecutionResult`. |
-| Prompt building stays in runtime | The prompt is constructed from data in the request (session metadata, tool schemas, skill instructions, memory snippets). The runtime assembles these into the system prompt. Assembly logic is tightly coupled with the ReAct loop and context compaction. |
+| Single runner contract | Sufficient for local, scheduled, and delegated execution. No routing complexity needed. |
+| Host loads history before invoking runner | Moves persistence access out of the runtime. Runtime operates on in-memory data only. |
+| Host applies guardrails after runner returns | Output filtering is a host policy concern. Guardrailed content is also applied to persisted messages. |
+| Session resolution in host | Session identity is tied to adapters and persistence. Runtime receives metadata, not a key to resolve. |
+| EventBus emission in host | Runtime doesn't know about the event bus or adapter routing. |
+| Prompt building in runtime | Tightly coupled with the ReAct loop and context compaction. Uses data from the request. |
+| Cooperative cancellation | Preemptive cancellation requires process isolation. Cooperative is sufficient for `LocalRunner`. |
+| Error taxonomy as codes | Codes are serializable (future remote runners) and easy to match. |
+| `ExecutionRequest` is self-contained | Enables future remote or containerized runners without changing the contract. |
 
-## 10. Extension Points
+## 15. Extension Points
 
-- **ContainerRunner:** A future runner that starts a sandboxed process or container, serializes the `ExecutionRequest`, and deserializes the `ExecutionResult`. The host code does not change.
-- **RemoteRunner:** A future runner that sends the request to a remote worker over HTTP or a message queue. Same host interface.
-- **Multi-runner routing:** A future host component that selects a runner based on request properties (e.g., tool requirements, origin, or resource limits). The runner interface remains the same.
+- **ContainerRunner:** Serializes `ExecutionRequest`, starts a sandboxed process, deserializes `ExecutionResult`. Host code unchanged.
+- **RemoteRunner:** Sends request to a remote worker over HTTP or message queue. Same interface.
+- **Multi-runner routing:** Host component selects runner based on request properties (tool requirements, origin, resource limits).
+- **Streaming:** Future `executeStream()` method yields `ExecutionEvent` objects. Does not change the synchronous `execute()` contract.

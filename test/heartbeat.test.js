@@ -17,45 +17,43 @@ describe('HeartbeatScheduler', () => {
       exec: (sql) => rawDb.exec(sql),
     };
 
-    const fakeAgentLoop = {
-      processMessage: async (msg) => ({ content: 'done' }),
+    const fakeRunner = {
+      execute: async (request) => ({ content: 'done', newMessages: [] }),
     };
-    const fakeSessionManager = {};
+    const fakeToolRegistry = {
+      getSchemas: () => [],
+    };
+    const fakeSessionManager = {
+      loadHistory: () => [],
+    };
     const fakeLogger = { info: () => {}, error: () => {}, warn: () => {} };
-    const fakeConfig = { heartbeatIntervalMs: 0 };
+    const fakeConfig = { heartbeatIntervalMs: 0, maxToolIterations: 25 };
 
-    scheduler = new HeartbeatScheduler(fakeAgentLoop, fakeSessionManager, wrappedDb, fakeConfig, fakeLogger);
+    scheduler = new HeartbeatScheduler(fakeRunner, fakeToolRegistry, fakeSessionManager, wrappedDb, fakeConfig, fakeLogger);
   });
 
-  it('tick creates a synthetic message with correct userId and channelId', async () => {
-    let capturedMessage = null;
-    scheduler.agentLoop = {
-      processMessage: async (msg) => {
-        capturedMessage = msg;
-        return { content: 'ok' };
+  it('tick creates an ExecutionRequest with correct userId and channelId', async () => {
+    let capturedRequest = null;
+    scheduler.runner = {
+      execute: async (request) => {
+        capturedRequest = request;
+        return { content: 'ok', newMessages: [] };
       },
     };
-    // Manually set the path to a non-existent file so _parseTasks returns empty
-    // We test the message shape by overriding _parseTasks
     scheduler._parseTasks = () => [{ name: 'Test', instructions: 'do something' }];
 
     await scheduler.tick();
 
-    assert.equal(capturedMessage.userId, 'system');
-    assert.equal(capturedMessage.channelId, 'heartbeat');
-    assert.ok(capturedMessage.sessionId.includes('heartbeat'));
+    assert.equal(capturedRequest.userId, 'system');
+    assert.equal(capturedRequest.channelId, 'heartbeat');
+    assert.ok(capturedRequest.sessionId.includes('heartbeat'));
   });
 
   it('start ensures system user has admin role', () => {
-    // start() checks for HEARTBEAT.md file — it won't find it, but
-    // we can test the DB setup by calling start on a scheduler with a valid path
     scheduler.config = { heartbeatIntervalMs: 60000 };
-    // Override path check to pretend file exists
-    const origStart = scheduler.start.bind(scheduler);
     scheduler._heartbeatPath = '__nonexistent__';
     scheduler.start(); // Will return early due to file not found
 
-    // Manually trigger the path where file exists
     // Test the DB insert directly
     wrappedDb.prepare(
       'INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET role = ?'

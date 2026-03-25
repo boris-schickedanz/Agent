@@ -1,8 +1,8 @@
 # Spec 14 — Migration Plan
 
-> Status: **Draft** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
 >
-> Depends on: [Spec 10](10-host-runtime-boundary.md), [Spec 11](11-runner-interface.md), [Spec 12](12-host-orchestration.md), [Spec 13](13-tool-boundaries.md)
+> Depends on: [Spec 10](10-host-runtime-boundary.md) (consolidated from former specs 10-13)
 
 ## 1. Purpose
 
@@ -147,7 +147,6 @@ export class HostDispatcher {
     skillLoader,
     permissionManager,
     eventBus,
-    runner,
     logger,
     config,
   }) { /* store references */ }
@@ -216,9 +215,18 @@ export class HostDispatcher {
       content = guardrail.content;
     }
 
-    // 2. Persist
+    // 2. Persist (with guardrailed content applied to the final assistant message)
     if (result.newMessages && result.newMessages.length > 0) {
-      this.sessionManager.appendMessages(request.sessionId, result.newMessages);
+      const messages = [...result.newMessages];
+      if (content) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === 'assistant' && typeof messages[i].content === 'string') {
+            messages[i] = { ...messages[i], content };
+            break;
+          }
+        }
+      }
+      this.sessionManager.appendMessages(request.sessionId, messages);
     }
 
     // 3. Deliver
@@ -334,18 +342,18 @@ Roll back a phase if:
 
 The refactor is complete when all of the following are true:
 
-- [ ] `AgentRunner` and `LocalRunner` exist and are tested.
-- [ ] `ExecutionRequest` and `ExecutionResult` types exist and are tested.
-- [ ] `HostDispatcher` builds requests and finalizes results.
-- [ ] `AgentLoop.processMessage` accepts the new parameter shape and returns `newMessages`.
-- [ ] `AgentLoop` no longer imports or calls `SessionManager`, `PermissionManager` (guardrails), or `EventBus` (outbound).
-- [ ] `MessageQueue` constructor accepts an `AgentRunner`, not an `AgentLoop`.
-- [ ] `HeartbeatScheduler` builds `ExecutionRequest` objects and calls `runner.execute()`.
-- [ ] `index.js` instantiates `LocalRunner` and `HostDispatcher`, wires them into the pipeline.
-- [ ] All existing tools are annotated with a `class` field.
-- [ ] All Phase M3 end-to-end tests pass.
-- [ ] The system produces identical adapter-visible behavior (same response content, same tool execution order, same persistence).
-- [ ] Specs 01 through 09 are reviewed and updated where references to the old architecture are outdated.
+- [x] `AgentRunner` and `LocalRunner` exist and are tested.
+- [x] `ExecutionRequest` and `ExecutionResult` types exist and are tested.
+- [x] `HostDispatcher` builds requests and finalizes results.
+- [x] `AgentLoop.processMessage` accepts the new parameter shape and returns `newMessages`.
+- [x] `AgentLoop` no longer imports or calls `SessionManager`, `PermissionManager` (guardrails), or `EventBus` (outbound).
+- [x] `MessageQueue` constructor accepts an `AgentRunner`, not an `AgentLoop`.
+- [x] `HeartbeatScheduler` builds `ExecutionRequest` objects and calls `runner.execute()`.
+- [x] `index.js` instantiates `LocalRunner` and `HostDispatcher`, wires them into the pipeline.
+- [x] All existing tools are annotated with a `class` field.
+- [x] All Phase M3 end-to-end tests pass.
+- [x] The system produces identical adapter-visible behavior (same response content, same tool execution order, same persistence).
+- [x] Specs 01 through 09 are reviewed and updated where references to the old architecture are outdated.
 
 ## 10. Sequence Diagram (Full Pipeline After M3)
 
@@ -397,13 +405,16 @@ AdapterRegistry → Adapter.sendMessage()
 
 ## 11. Post-Refactor Spec Updates
 
-After the migration is accepted, update these existing specs:
+All existing specs have been updated to reflect the post-migration architecture:
 
-| Spec | Required Updates |
-|------|-----------------|
-| 01 — Runtime Core | Update §2.4 (AgentLoop) to reflect new parameter shape. Update §3 (Startup Sequence) to include runner and dispatcher. Update §2.2 (MessageQueue) constructor signature. |
-| 03 — Tools | Add §6 documenting the `class` field and tool boundary classification. Reference spec 13. |
-| 04 — Memory | Note that memory search is now performed by the host before execution, not by the prompt builder. |
-| 07 — Security | Note that outbound guardrails are now applied by the host dispatcher, not inside the agent loop. |
+| Spec | Updates Applied |
+|------|----------------|
+| 01 — Runtime Core | Updated §2.4 (AgentLoop) with new parameter shape and return type. Added §2.5 (HostDispatcher) and §2.6 (Runner Layer). Updated §2.1 (EventBus) events table. Updated §2.2 (MessageQueue) constructor signature. Updated §3 (Startup Sequence) and §4 (Shutdown). |
+| 02 — Brain | Updated §2.3 (PromptBuilder) signature to accept `memorySnippets`. Noted memory search moved to host. |
+| 03 — Tools | Added `class` field to §2.2 (Tool Definition). Added §5 (Tool Classes) with classification table. Updated built-in tool tables with class column. |
+| 04 — Memory | Updated §3 to describe host-side memory search via `HostDispatcher.buildRequest()`. |
+| 05 — Skills | Updated §4 to note trigger matching moved to `HostDispatcher`. |
+| 06 — Adapters | Updated §4 to note outbound messages emitted by `HostDispatcher.finalize()`. |
+| 07 — Security | Updated §3.1 to note guardrails called by `HostDispatcher.finalize()` and applied to persisted messages. Updated §5 with full pipeline steps. |
 
-Specs 02, 05, 06, 08, and 09 require no changes.
+Specs 08 (Database) and 09 (Configuration) required no changes.

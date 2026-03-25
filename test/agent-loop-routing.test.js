@@ -2,8 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { AgentLoop } from '../src/core/agent-loop.js';
+import { LocalRunner } from '../src/core/runner/local-runner.js';
+import { HostDispatcher } from '../src/core/host-dispatcher.js';
 
-describe('AgentLoop routing and guardrails', () => {
+describe('AgentLoop routing and guardrails (via HostDispatcher)', () => {
   it('persists the guardrailed assistant response and routes outbound via the adapter sessionId', async () => {
     const appended = [];
     const eventBus = new EventEmitter();
@@ -32,9 +34,17 @@ describe('AgentLoop routing and guardrails', () => {
       },
       promptBuilder: { build: async () => 'system prompt' },
       toolExecutor: {},
-      toolRegistry: { getSchemas: () => [] },
-      toolPolicy: null,
       contextCompactor: { shouldCompact: () => false },
+      logger: { error: () => {}, info: () => {}, warn: () => {} },
+      config: { maxToolIterations: 3 },
+    });
+
+    const runner = new LocalRunner({
+      agentLoop,
+      logger: { error: () => {}, info: () => {}, warn: () => {} },
+    });
+
+    const dispatcher = new HostDispatcher({
       sessionManager: {
         resolveSessionId: () => 'user:alice',
         getOrCreate: () => session,
@@ -43,6 +53,10 @@ describe('AgentLoop routing and guardrails', () => {
           appended.push({ sessionId, messages });
         },
       },
+      toolPolicy: null,
+      toolRegistry: { getSchemas: () => [] },
+      memorySearch: { search: () => [] },
+      skillLoader: null,
       permissionManager: {
         checkModelGuardrails: (content) => ({
           safe: true,
@@ -54,22 +68,26 @@ describe('AgentLoop routing and guardrails', () => {
       config: { maxToolIterations: 3 },
     });
 
-    const result = await agentLoop.processMessage({
+    const originalMessage = {
       id: 'msg-1',
       sessionId: 'telegram:12345',
       channelId: 'telegram',
       userId: '12345',
       userName: 'Alice',
       content: 'Hello',
-    });
+    };
+
+    const request = dispatcher.buildRequest(originalMessage);
+    const result = await runner.execute(request);
+    const outboundResult = await dispatcher.finalize(request, result, originalMessage);
 
     assert.equal(appended.length, 1);
     assert.equal(appended[0].sessionId, 'user:alice');
     assert.equal(appended[0].messages.at(-1).role, 'assistant');
     assert.equal(appended[0].messages.at(-1).content, 'secret  hello');
 
-    assert.equal(result.sessionId, 'telegram:12345');
-    assert.equal(result.content, 'secret  hello');
+    assert.equal(outboundResult.sessionId, 'telegram:12345');
+    assert.equal(outboundResult.content, 'secret  hello');
     assert.equal(outbound.sessionId, 'telegram:12345');
     assert.equal(outbound.content, 'secret  hello');
   });

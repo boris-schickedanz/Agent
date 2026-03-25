@@ -86,8 +86,10 @@ Skills can be activated in two ways:
 
 | Mechanism | When | Behavior |
 |-----------|------|----------|
-| **Explicit trigger** | User message starts with the trigger (e.g., `/weather`) | Skill instructions injected into system prompt via `promptBuilder` |
+| **Explicit trigger** | User message starts with the trigger (e.g., `/weather`) | `HostDispatcher.buildRequest()` matches the trigger and includes `skillInstructions` in the `ExecutionRequest`. The runtime injects them into the system prompt via `promptBuilder`. |
 | **Tool invocation** | LLM calls the `skill_{name}` pseudo-tool | Skill instructions returned as tool result |
+
+**Note:** Trigger matching was previously performed inside `AgentLoop.processMessage()` but was moved to the host (`HostDispatcher`) as part of the host/runtime boundary refactor. Skills are loaded during startup (before the dispatcher is constructed) so that `HostDispatcher` has access to the loaded skills.
 
 **Note:** The `always: true` flag is reserved for future use where skills would always be included in the system prompt.
 

@@ -3,15 +3,15 @@
  * Different sessions process in parallel, but messages within a session are serialized.
  */
 export class MessageQueue {
-  constructor(agentLoop, logger) {
-    this.agentLoop = agentLoop;
+  constructor(runner, logger) {
+    this.runner = runner;
     this.logger = logger;
     this._queues = new Map();
     this._processing = new Set();
     this._shuttingDown = false;
   }
 
-  async enqueue(sessionId, message) {
+  async enqueue(sessionId, executionRequest) {
     if (this._shuttingDown) {
       this.logger.warn({ sessionId }, 'Message rejected: shutting down');
       return null;
@@ -21,7 +21,7 @@ export class MessageQueue {
       if (!this._queues.has(sessionId)) {
         this._queues.set(sessionId, []);
       }
-      this._queues.get(sessionId).push({ message, resolve, reject });
+      this._queues.get(sessionId).push({ executionRequest, resolve, reject });
       this._processNext(sessionId);
     });
   }
@@ -33,10 +33,10 @@ export class MessageQueue {
     if (!queue || queue.length === 0) return;
 
     this._processing.add(sessionId);
-    const { message, resolve, reject } = queue.shift();
+    const { executionRequest, resolve, reject } = queue.shift();
 
     try {
-      const result = await this.agentLoop.processMessage(message);
+      const result = await this.runner.execute(executionRequest);
       resolve(result);
     } catch (err) {
       this.logger.error({ sessionId, err: err.message }, 'Message processing failed');

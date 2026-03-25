@@ -1,6 +1,7 @@
 export function registerSystemTools(registry) {
   registry.register({
     name: 'get_current_time',
+    class: 'runtime',
     description: 'Get the current date and time in ISO 8601 format',
     inputSchema: {
       type: 'object',
@@ -28,6 +29,7 @@ export function registerSystemTools(registry) {
 
   registry.register({
     name: 'wait',
+    class: 'runtime',
     description: 'Wait for a specified number of seconds (max 30)',
     inputSchema: {
       type: 'object',

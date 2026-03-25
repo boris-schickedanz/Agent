@@ -89,11 +89,12 @@ reindex(persistentMemory: PersistentMemory): void
 
 **Reindex:** Drops all FTS5 entries and rebuilds from all files in the memory directory. Use for recovery or after manual file edits.
 
-## 3. How Memory Is Used in the Agent Loop
+## 3. How Memory Is Used in the Pipeline
 
-1. **Prompt building:** `PromptBuilder.build()` calls `memorySearch.search(session.lastUserMessage, 5)` to find relevant memories and includes them in the system prompt.
-2. **Tool use:** The agent can explicitly call `save_memory`, `search_memory`, and `list_memories` tools to manage persistent memory.
-3. **Context compaction:** When conversation history is compacted, the summary replaces older messages in conversation memory via `replaceHistory`.
+1. **Host-side search:** `HostDispatcher.buildRequest()` calls `memorySearch.search(message.content, 5)` to find relevant memories and includes them as `memorySnippets` (truncated to 300 chars each) in the `ExecutionRequest`. This search was previously performed inside `PromptBuilder.build()` but was moved to the host as part of the host/runtime boundary refactor.
+2. **Prompt building:** `PromptBuilder.build()` receives pre-searched `memorySnippets` from the request and includes them in the system prompt.
+3. **Tool use:** The agent can explicitly call `save_memory`, `search_memory`, and `list_memories` tools to manage persistent memory.
+4. **Context compaction:** When conversation history is compacted, the summary replaces older messages in conversation memory via `replaceHistory`.
 
 ## 4. FTS5 Configuration
 

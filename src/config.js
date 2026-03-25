@@ -3,6 +3,7 @@ import { resolve } from 'path';
 
 export const config = Object.freeze({
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+  anthropicAuthToken: process.env.ANTHROPIC_AUTH_TOKEN || '',
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
   agentName: process.env.AGENT_NAME || 'AgentCore',
   dataDir: resolve(process.env.DATA_DIR || './data'),
@@ -14,6 +15,9 @@ export const config = Object.freeze({
   compactionThreshold: parseInt(process.env.COMPACTION_THRESHOLD || '80000', 10),
   autoApproveUsers: process.env.AUTO_APPROVE_USERS === 'true',
   masterKey: process.env.MASTER_KEY || '',
+  llmProvider: process.env.LLM_PROVIDER || 'anthropic',
   model: process.env.MODEL || 'claude-sonnet-4-20250514',
+  ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
+  ollamaModel: process.env.OLLAMA_MODEL || 'llama3.1',
   consoleUserId: process.env.CONSOLE_USER_ID || 'console-user',
 });

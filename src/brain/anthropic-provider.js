@@ -4,7 +4,9 @@ import { LLMProvider } from './llm-provider.js';
 export class AnthropicProvider extends LLMProvider {
   constructor(config, logger) {
     super();
-    this.client = new Anthropic({ apiKey: config.anthropicApiKey });
+    this.client = config.anthropicAuthToken
+      ? new Anthropic({ authToken: config.anthropicAuthToken, apiKey: null })
+      : new Anthropic({ apiKey: config.anthropicApiKey });
     this.model = config.model;
     this.logger = logger;
     this.maxRetries = 3;

@@ -58,14 +58,14 @@ All adapters MUST normalize inbound messages to this exact shape:
 
 ## 4. Outbound Message Format
 
-Agent responses emitted on `message:outbound`:
+Agent responses emitted on `message:outbound` by `HostDispatcher.finalize()`:
 
 ```js
 {
-  sessionId: string,
+  sessionId: string,       // Original adapter sessionId (for routing back)
   channelId: string,
   userId: string,
-  content: string,         // Markdown text
+  content: string,         // Markdown text (after guardrail filtering)
   replyTo: string | null,
   metadata: {
     toolsUsed: string[],
@@ -74,6 +74,8 @@ Agent responses emitted on `message:outbound`:
   }
 }
 ```
+
+**Note:** The `sessionId` in outbound messages is the original adapter session ID (e.g., `telegram:12345`), not the canonical session ID used internally. This ensures the adapter can route the response back to the correct chat.
 
 ## 5. Adapter Registry
 

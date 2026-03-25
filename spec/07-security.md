@@ -56,6 +56,7 @@ authorize(userId: string, channelId: string, toolName?: string): { allowed: bool
 **`checkModelGuardrails` behavior:**
 - Strips accidentally leaked markers: `system:`, `[INTERNAL]`, `[SYSTEM]`.
 - Returns sanitized content.
+- Called by `HostDispatcher.finalize()` after the runner returns. The guardrailed content is applied to both the outbound message and the persisted conversation history (the last assistant message in `newMessages` is updated with the filtered content before `appendMessages` is called).
 
 ### 3.2 Tool Policy
 
@@ -195,13 +196,16 @@ Users are stored in the `users` table. Role changes require direct database modi
 
 ```js
 // src/index.js — message:inbound handler
-1. rateLimiter.consume(userId)                    // Rate limit gate
+1. rateLimiter.consume(userId)                       // Rate limit gate
 2. permissionManager.checkAccess(userId, channelId)  // Identity gate
-3. inputSanitizer.sanitize(message)               // Sanitization
-4. messageQueue.enqueue(sessionId, sanitized)      // → AgentLoop
+3. inputSanitizer.sanitize(message)                  // Sanitization
+4. inputSanitizer.detectInjection(content)            // Injection detection (log only)
+5. dispatcher.buildRequest(sanitized)                 // Host resolves session, tools, memory, skills
+6. messageQueue.enqueue(sessionId, request)           // → runner.execute() → AgentLoop
+7. dispatcher.finalize(request, result, message)      // Guardrails, persistence, delivery
 ```
 
-Each gate can reject the message. Rejections emit a `message:outbound` with an error message.
+Each gate (steps 1-3) can reject the message. Rejections emit a `message:outbound` with an error message. Outbound guardrails (step 7) are applied by `HostDispatcher.finalize()`, not inside the agent loop.
 
 ## 6. Design Decisions
 

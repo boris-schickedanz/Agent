@@ -41,6 +41,7 @@ Every tool registered with the system MUST conform to this shape:
 ```js
 {
   name: string,           // Unique, lowercase, kebab-case (e.g., 'http_get')
+  class: string,          // 'runtime' | 'brokered' | 'host' (default: 'runtime')
   description: string,    // Human-readable, sent to the LLM
   inputSchema: {          // JSON Schema object
     type: 'object',
@@ -129,20 +130,20 @@ Unsupported types fall back to `z.any()`.
 **File:** `src/tools/built-in/system-tools.js`
 **Registration:** `registerSystemTools(registry)`
 
-| Tool | Description | Input | Permissions |
-|------|-------------|-------|-------------|
-| `get_current_time` | Current date/time in a given timezone | `{ timezone?: string }` — IANA name, default UTC | None |
-| `wait` | Async sleep | `{ seconds: number }` — 1-30, clamped | None |
+| Tool | Class | Description | Input | Permissions |
+|------|-------|-------------|-------|-------------|
+| `get_current_time` | `runtime` | Current date/time in a given timezone | `{ timezone?: string }` — IANA name, default UTC | None |
+| `wait` | `runtime` | Async sleep | `{ seconds: number }` — 1-30, clamped | None |
 
 ### 3.2 HTTP Tools
 
 **File:** `src/tools/built-in/http-tools.js`
 **Registration:** `registerHttpTools(registry)`
 
-| Tool | Description | Input | Permissions |
-|------|-------------|-------|-------------|
-| `http_get` | Fetch a URL (GET) | `{ url: string, headers?: object }` | `network:outbound` |
-| `http_post` | POST JSON to a URL | `{ url: string, body?: object, headers?: object }` | `network:outbound` |
+| Tool | Class | Description | Input | Permissions |
+|------|-------|-------------|-------|-------------|
+| `http_get` | `brokered` | Fetch a URL (GET) | `{ url: string, headers?: object }` | `network:outbound` |
+| `http_post` | `brokered` | POST JSON to a URL | `{ url: string, body?: object, headers?: object }` | `network:outbound` |
 
 **Constraints:**
 - Request timeout: 15 seconds (`AbortSignal.timeout`)
@@ -155,11 +156,11 @@ Unsupported types fall back to `z.any()`.
 **File:** `src/tools/built-in/memory-tools.js`
 **Registration:** `registerMemoryTools(registry, persistentMemory, memorySearch)`
 
-| Tool | Description | Input | Permissions |
-|------|-------------|-------|-------------|
-| `save_memory` | Save to persistent memory | `{ key: string, content: string }` | `memory:write` |
-| `search_memory` | FTS5 search across memories | `{ query: string, limit?: number (1-20, default 5) }` | `memory:read` |
-| `list_memories` | List all memory keys | (none) | `memory:read` |
+| Tool | Class | Description | Input | Permissions |
+|------|-------|-------------|-------|-------------|
+| `save_memory` | `brokered` | Save to persistent memory | `{ key: string, content: string }` | `memory:write` |
+| `search_memory` | `brokered` | FTS5 search across memories | `{ query: string, limit?: number (1-20, default 5) }` | `memory:read` |
+| `list_memories` | `brokered` | List all memory keys | (none) | `memory:read` |
 
 ## 4. Adding a New Built-in Tool
 
@@ -169,7 +170,65 @@ Unsupported types fall back to `z.any()`.
 4. Add the tool name to the appropriate policy profile(s) in `src/security/tool-policy.js`.
 5. Update this spec with the tool's entry in the built-in tools table.
 
-## 5. Design Decisions
+## 5. Tool Classes and Trust Boundaries
+
+Each tool is assigned a `class` that determines its trust boundary relative to the host/runtime split (see [Spec 10](10-host-runtime-boundary.md)). The class field defaults to `'runtime'` if not specified during registration.
+
+### 5.1 Class Definitions
+
+| Class | Description | Examples |
+|-------|-------------|----------|
+| `runtime` | Executes entirely within the runtime. Pure computation or stateless operations. No access to persistent storage, file system, or network (in a sandboxed runtime). Safe to run in a container without special permissions. | `get_current_time`, `wait`, skill pseudo-tools |
+| `brokered` | Invoked by the LLM like a runtime tool, but execution crosses the host/runtime boundary. In `LocalRunner`, brokering is a no-op — the tool handler closure captures host-side references (e.g., `persistentMemory`, `memorySearch`). In a future container runner, the runtime would send a structured request over a bridge to the host. | `http_get`, `http_post`, `save_memory`, `search_memory`, `list_memories` |
+| `host` | Host-only tools not exposed to the LLM. Callable only through host-side APIs (admin commands, management endpoints). | (none currently — reserved for future admin tools) |
+
+### 5.2 Classification Criteria
+
+| Criterion | Runtime | Brokered | Host |
+|-----------|---------|----------|------|
+| Accesses database? | No | Yes (via host) | Yes (directly) |
+| Accesses file system? | No | Yes (via host) | Yes (directly) |
+| Makes network calls? | No (in sandbox) | Yes (via host) | Yes (directly) |
+| Invoked by LLM? | Yes | Yes | No |
+| Runs in sandbox? | Yes | Proxy in sandbox, execution on host | No |
+| Requires host credentials? | No | Yes (host provides) | Yes |
+
+### 5.3 Summary Table
+
+| Tool | File | Class | Side Effects |
+|------|------|-------|-------------|
+| `get_current_time` | `system-tools.js` | `runtime` | None |
+| `wait` | `system-tools.js` | `runtime` | None |
+| `http_get` | `http-tools.js` | `brokered` | Outbound network request |
+| `http_post` | `http-tools.js` | `brokered` | Outbound network request, external state mutation |
+| `save_memory` | `memory-tools.js` | `brokered` | File system write, database write |
+| `search_memory` | `memory-tools.js` | `brokered` | Database read |
+| `list_memories` | `memory-tools.js` | `brokered` | File system read |
+| `skill_{name}` | (dynamic) | `runtime` | None |
+
+### 5.4 Registry Behavior
+
+- The `class` field is stored on each tool definition in the registry.
+- `getSchemas()` excludes `class` from the API output sent to the LLM — it is internal metadata.
+- Tools registered without a `class` field default to `'runtime'`.
+- The `class` field is informational in `LocalRunner` but becomes load-bearing when a container runner needs to decide whether to execute locally or broker to the host.
+
+### 5.5 Policy Enforcement Across Classes
+
+- **Runtime tools:** Permission checked by `ToolExecutor` inside the runtime using `allowedToolNames` from the `ExecutionRequest`.
+- **Brokered tools:** Permission checked twice — pre-flight (host includes only permitted schemas in request) and at execution (runtime's `ToolExecutor` re-checks). In a future brokered setup, the host re-checks on the brokered request (defense in depth).
+- **Host tools:** Host-side only. Not exposed to the LLM or runtime.
+
+### 5.6 Container/Remote Implications (Future)
+
+When the runtime runs in a container:
+- **Runtime tools** execute inside the container directly.
+- **Brokered tools** require a communication channel (HTTP, gRPC, stdio) between container and host. The container sends a structured request; the host executes and returns the result.
+- **Host tools** are never sent to the container.
+
+A containerized runtime should have no outbound network access (HTTP tools brokered through host for SSRF protection and audit) and a read-only or ephemeral file system (memory tools brokered because they access host storage).
+
+## 6. Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
@@ -178,3 +237,6 @@ Unsupported types fall back to `z.any()`.
 | Zod for validation | Runtime type safety. Zod is already a dependency for skill schema validation. |
 | Permission scopes as strings | Simple pattern matching (`memory:write`, `network:*`). No ACL complexity needed at this scale. |
 | Tool executor logs all executions | Audit trail for debugging and security review. |
+| Three tool classes (runtime/brokered/host) | A simple host/runtime split would force HTTP and memory tools into one bucket. The brokered class captures LLM-invokable tools that require host-side execution. |
+| Brokering is a no-op in LocalRunner | Avoids unnecessary abstraction. The class is an architectural annotation for now, load-bearing when a container runner is introduced. |
+| `class` field excluded from API schemas | Internal metadata. The LLM doesn't need to know about trust boundaries. |

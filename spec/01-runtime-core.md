@@ -20,8 +20,7 @@ A lightweight in-process pub/sub system that decouples adapters from the agent l
 | Event | Payload | Emitted by | Consumed by |
 |-------|---------|------------|-------------|
 | `message:inbound` | `NormalizedMessage` | Adapters | `src/index.js` (security pipeline) |
-| `message:outbound` | `OutboundMessage` | AgentLoop | AdapterRegistry |
-| `tool:executed` | `{ tool, success, durationMs, sessionId }` | AgentLoop | Listeners (logging, metrics) |
+| `message:outbound` | `OutboundMessage` | HostDispatcher | AdapterRegistry |
 | `error` | `Error` | Any component | Global error handler |
 
 **Constraints:**
@@ -33,22 +32,24 @@ A lightweight in-process pub/sub system that decouples adapters from the agent l
 **File:** `src/core/message-queue.js`
 **Class:** `MessageQueue`
 
-Ensures messages within a single session are processed serially (no interleaving) while different sessions process in parallel.
+Ensures execution requests within a single session are processed serially (no interleaving) while different sessions process in parallel.
 
 **Interface:**
 
 ```js
-enqueue(sessionId: string, message: NormalizedMessage): Promise<OutboundMessage>
+constructor(runner: AgentRunner, logger: Logger)
+enqueue(sessionId: string, executionRequest: ExecutionRequest): Promise<ExecutionResult>
 getQueueDepth(sessionId: string): number
 shutdown(): void
 ```
 
 **Behavior:**
+- Constructor accepts an `AgentRunner` (not `AgentLoop` directly). Calls `runner.execute(executionRequest)`.
 - Internally maintains `Map<sessionId, QueueEntry[]>` and a `Set<sessionId>` of currently-processing sessions.
-- When `enqueue` is called and no message is currently processing for that session, processing begins immediately.
-- When a message finishes processing, the next queued message for that session (if any) begins.
-- `shutdown()` sets a flag that causes subsequent `enqueue` calls to reject.
-- Each `enqueue` returns a Promise that resolves with the agent's outbound response for that message.
+- When `enqueue` is called and no request is currently processing for that session, processing begins immediately.
+- When a request finishes processing, the next queued request for that session (if any) begins.
+- `shutdown()` sets a flag that causes subsequent `enqueue` calls to return `null`.
+- Each `enqueue` returns a Promise that resolves with the runner's `ExecutionResult`.
 
 ### 2.3 Session Manager
 
@@ -90,51 +91,94 @@ appendMessages(sessionId: string, messages: Message[]): void
 **File:** `src/core/agent-loop.js`
 **Class:** `AgentLoop`
 
-The heart of the framework. Implements the ReAct (Reasoning + Acting) pattern.
+The heart of the framework. Implements the ReAct (Reasoning + Acting) pattern. The loop is a pure runtime component: it accepts pre-loaded data and returns structured results. It does not perform session resolution, history loading, tool resolution, persistence, guardrails, or outbound emission — those are host concerns handled by `HostDispatcher`.
+
+**Constructor dependencies:** `llmProvider`, `promptBuilder`, `toolExecutor`, `contextCompactor`, `logger`, `config`
 
 **Interface:**
 
 ```js
-async processMessage(normalizedMessage: NormalizedMessage): Promise<OutboundMessage>
+async processMessage({
+  history: Message[],
+  userContent: string,
+  toolSchemas: AnthropicToolSchema[],
+  memorySnippets: MemorySnippet[],
+  skillInstructions: string | null,
+  sessionMetadata: object,
+  maxIterations: number,
+  cancellationSignal: { cancelled: boolean },
+}): Promise<AgentLoopResult>
 ```
 
-**Processing steps (per inbound message):**
+**Processing steps:**
 
-1. **Session resolution** — `sessionManager.getOrCreate(userId, channelId, userName)`
-2. **History loading** — `sessionManager.loadHistory(sessionId)` (default limit: 50)
-3. **Tool resolution** — `toolPolicy.getEffectiveToolNames(userId, session)` → `toolRegistry.getSchemas(allowedTools)`
-4. **System prompt assembly** — `promptBuilder.build(session, toolSchemas)`
-5. **Message array construction** — `[...history, { role: 'user', content }]`
-6. **ReAct loop** (max `config.maxToolIterations` iterations):
-   - a. **Compaction check** — if `contextCompactor.shouldCompact(messages)`, compact.
-   - b. **LLM call** — `llmProvider.createMessage(systemPrompt, messages, toolSchemas)`
-   - c. **If `stopReason === 'end_turn'` or `'stop'`** — extract text blocks, break.
-   - d. **If `stopReason === 'tool_use'`** — for each `tool_use` block: execute via `toolExecutor.execute(name, input, session)`, collect `tool_result` blocks, push onto messages, continue loop.
-   - e. **LLM error** — set fallback text, break.
-7. **Persistence** — `sessionManager.appendMessages(sessionId, newMessages)`
-8. **Emit** — `eventBus.emit('message:outbound', outbound)`
+1. **System prompt assembly** — `promptBuilder.build(sessionForPrompt, toolSchemas, skillInstructions, memorySnippets)`
+2. **Message array construction** — `[...history, { role: 'user', content: userContent }]`
+3. **ReAct loop** (max `maxIterations` iterations):
+   - a. **Cancellation check** — if `cancellationSignal.cancelled`, set `status: 'cancelled'`, break.
+   - b. **Compaction check** — if `contextCompactor.shouldCompact(messages)`, compact.
+   - c. **LLM call** — `llmProvider.createMessage(systemPrompt, messages, toolSchemas)`
+   - d. **If `stopReason === 'end_turn'` or `'stop'`** — extract text blocks, break.
+   - e. **If `stopReason === 'tool_use'`** — for each `tool_use` block: execute via `toolExecutor.execute(name, input, sessionForPrompt)`, collect `tool_result` blocks, push onto messages, continue loop.
+   - f. **LLM error** — set fallback text, set `status: 'error'`, break.
+4. **Return structured result** (not persisted or emitted — the host does that).
 
-**Outbound message shape:**
+**Result shape:**
 
 ```js
 {
-  sessionId: string,
-  channelId: string,
-  userId: string,
-  content: string,           // Final text response
-  replyTo: string|null,
-  metadata: {
-    toolsUsed: string[],
-    tokenUsage: { inputTokens: number, outputTokens: number },
-    processingTimeMs: number
-  }
+  content: string,                 // Final text response
+  newMessages: Message[],          // All messages generated (user echo, assistant, tool_use, tool_result)
+  toolsUsed: string[],
+  tokenUsage: { inputTokens: number, outputTokens: number },
+  iterationCount: number,
+  status: 'completed' | 'max_iterations' | 'error' | 'cancelled',
+  error: { code: string, message: string, retriable: boolean } | null,
 }
 ```
 
 **Error handling:**
-- LLM call failures produce a user-friendly fallback message.
-- Max iterations exceeded produces a fallback message.
-- Individual tool failures are reported as `Error: ...` in the tool_result and the loop continues (the LLM sees the error and can adapt).
+- LLM call failures set `status: 'error'` with `error.code: 'llm_error'` and `retriable: true`.
+- Max iterations exceeded sets `status: 'max_iterations'`.
+- Cancellation sets `status: 'cancelled'`.
+- Individual tool failures are reported as `Error: ...` in the tool_result and the loop continues.
+
+### 2.5 Host Dispatcher
+
+**File:** `src/core/host-dispatcher.js`
+**Class:** `HostDispatcher`
+
+Extracts host concerns (session, tools, memory, skills, guardrails, persistence, delivery) from the agent loop into a single orchestration point. Provides two methods: `buildRequest` (before execution) and `finalize` (after execution).
+
+**Interface:**
+
+```js
+buildRequest(sanitizedMessage: NormalizedMessage, origin?: string): ExecutionRequest
+async finalize(request: ExecutionRequest, result: ExecutionResult, originalMessage?: NormalizedMessage): OutboundMessage
+```
+
+**`buildRequest` steps:**
+1. Session resolution — `sessionManager.resolveSessionId(message)` + `getOrCreate()`
+2. History loading — `sessionManager.loadHistory(sessionId)`
+3. Tool resolution — `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas()`
+4. Skill matching — iterate `skillLoader.getLoadedSkills()` for trigger match
+5. Memory search — `memorySearch.search(content, 5)`, truncate to 300 chars each
+6. Assemble `ExecutionRequest` with all resolved data
+
+**`finalize` steps:**
+1. Apply guardrails — `permissionManager.checkModelGuardrails(content)`
+2. Persist — apply guardrailed content to last assistant message in `newMessages`, then `sessionManager.appendMessages()`
+3. Deliver — emit `message:outbound` on `EventBus`
+
+### 2.6 Runner Layer
+
+**Files:** `src/core/runner/agent-runner.js`, `src/core/runner/local-runner.js`, `src/core/runner/execution-request.js`, `src/core/runner/execution-result.js`
+
+The runner layer bridges the host and the agent loop. The host calls `runner.execute(request)` and receives an `ExecutionResult`. See [Spec 10 — Host & Runner Architecture](10-host-runtime-boundary.md) for full details.
+
+**`AgentRunner`** — abstract base class with `execute(request)`, `cancel(executionId)`, `shutdown(timeoutMs)`.
+
+**`LocalRunner extends AgentRunner`** — wraps `AgentLoop` in-process. Translates `ExecutionRequest` to loop params and loop result to `ExecutionResult`. Supports cancellation (cooperative signal), timeout (`Promise.race`), duplicate execution rejection, and graceful shutdown.
 
 ## 3. Startup Sequence
 
@@ -149,34 +193,37 @@ Defined in `src/index.js`. Components are instantiated in strict dependency orde
 7. Tool Registry + built-in tool registration
 8. Security layer (InputSanitizer, RateLimiter, ToolPolicy, PermissionManager)
 9. Prompt Builder
-10. Session Manager
-11. Tool Executor
-12. Agent Loop
-13. Message Queue
-14. Event bus wiring (`message:inbound` handler with security pipeline)
-15. Adapter Registry + adapter registration (Telegram if configured, Console always)
-16. Skill Loader (optional)
-17. Heartbeat Scheduler (optional)
+10. Session Manager, Tool Executor, AgentLoop (runtime core)
+11. LocalRunner (wraps AgentLoop)
+12. MessageQueue (accepts runner)
+13. Skill Loader (optional, loaded before dispatcher)
+14. Host Dispatcher (owns session/tool/memory/skill resolution and finalization)
+15. Event bus wiring (`message:inbound` handler with security pipeline)
+16. Adapter Registry + adapter registration (Telegram if configured, Console always)
+17. Heartbeat Scheduler (optional, uses runner)
 18. `adapterRegistry.startAll()`
 
 **Inbound message pipeline (wired on EventBus):**
 
 ```
 message:inbound
-  → rateLimiter.consume(userId)          — reject if rate limited
+  → rateLimiter.consume(userId)              — reject if rate limited
   → permissionManager.checkAccess(userId, channelId)  — reject if blocked
-  → inputSanitizer.sanitize(message)     — strip dangerous content
-  → messageQueue.enqueue(sessionId, sanitizedMessage)
+  → inputSanitizer.sanitize(message)         — strip dangerous content
+  → dispatcher.buildRequest(sanitized)       — resolve session, tools, memory, skills
+  → messageQueue.enqueue(sessionId, request) — per-session serialization → runner.execute()
+  → dispatcher.finalize(request, result)     — guardrails, persistence, delivery
 ```
 
 ## 4. Shutdown
 
 Triggered by `SIGINT` or `SIGTERM`:
 
-1. `messageQueue.shutdown()` — stop accepting new messages
-2. `adapterRegistry.stopAll()` — stop all adapters
-3. `db.close()` — close SQLite connection
-4. `process.exit(0)`
+1. `messageQueue.shutdown()` — stop accepting new requests
+2. `runner.shutdown()` — wait for in-flight executions, then force-cancel remaining
+3. `adapterRegistry.stopAll()` — stop all adapters
+4. `db.close()` — close SQLite connection
+5. `process.exit(0)`
 
 ## 5. Design Decisions
 

@@ -30,6 +30,7 @@ export function validateUrl(urlString) {
 export function registerHttpTools(registry) {
   registry.register({
     name: 'http_get',
+    class: 'brokered',
     description: 'Fetch content from a URL via HTTP GET. Returns the response body as text.',
     inputSchema: {
       type: 'object',
@@ -65,6 +66,7 @@ export function registerHttpTools(registry) {
 
   registry.register({
     name: 'http_post',
+    class: 'brokered',
     description: 'Send data to a URL via HTTP POST. Returns the response body as text.',
     inputSchema: {
       type: 'object',

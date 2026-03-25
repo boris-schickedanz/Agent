@@ -1,6 +1,7 @@
 export function registerMemoryTools(registry, persistentMemory, memorySearch) {
   registry.register({
     name: 'save_memory',
+    class: 'brokered',
     description: 'Save information to long-term persistent memory. Use this to remember important facts, preferences, or decisions across conversations.',
     inputSchema: {
       type: 'object',
@@ -25,6 +26,7 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch) {
 
   registry.register({
     name: 'search_memory',
+    class: 'brokered',
     description: 'Search through long-term persistent memory using natural language queries.',
     inputSchema: {
       type: 'object',
@@ -56,6 +58,7 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch) {
 
   registry.register({
     name: 'list_memories',
+    class: 'brokered',
     description: 'List all stored memory keys.',
     inputSchema: {
       type: 'object',

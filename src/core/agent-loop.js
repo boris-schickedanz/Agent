@@ -1,79 +1,93 @@
 /**
  * The core ReAct agent loop.
- * For each inbound message: load context → call LLM → parse → execute tools → loop until done.
+ * Accepts pre-loaded data from the host and returns structured results.
+ * Does not perform session resolution, history loading, tool resolution,
+ * persistence, guardrails, or outbound emission — those are host concerns.
  */
 export class AgentLoop {
   constructor({
     llmProvider,
     promptBuilder,
     toolExecutor,
-    toolRegistry,
-    toolPolicy,
     contextCompactor,
-    sessionManager,
-    permissionManager,
-    eventBus,
     logger,
     config,
   }) {
     this.llm = llmProvider;
     this.promptBuilder = promptBuilder;
     this.toolExecutor = toolExecutor;
-    this.toolRegistry = toolRegistry;
-    this.toolPolicy = toolPolicy;
     this.compactor = contextCompactor;
-    this.sessions = sessionManager;
-    this.permissionManager = permissionManager || null;
-    this.skillLoader = null;
-    this.eventBus = eventBus;
     this.logger = logger;
-    this.maxIterations = config.maxToolIterations;
+    this.defaultMaxIterations = config.maxToolIterations;
   }
 
-  async processMessage(normalizedMessage) {
-    const { sessionId: routeSessionId, channelId, userId, userName, content } = normalizedMessage;
+  /**
+   * @param {object} params
+   * @param {Message[]} params.history - Pre-loaded conversation history
+   * @param {string} params.userContent - User message content
+   * @param {object[]} params.toolSchemas - Resolved tool schemas
+   * @param {object[]} params.memorySnippets - Pre-searched memory results
+   * @param {string|null} params.skillInstructions - Matched skill instructions
+   * @param {object} params.sessionMetadata - Session metadata
+   * @param {number} params.maxIterations - Max ReAct iterations
+   * @param {object} params.cancellationSignal - { cancelled: boolean }
+   */
+  async processMessage({
+    history,
+    userContent,
+    toolSchemas,
+    memorySnippets,
+    skillInstructions,
+    sessionMetadata,
+    maxIterations,
+    cancellationSignal,
+  }) {
+    const iterationCap = maxIterations || this.defaultMaxIterations;
 
-    // 1. Resolve canonical sessionId and get or create session
-    const sessionId = this.sessions.resolveSessionId(normalizedMessage);
-    const session = this.sessions.getOrCreate(sessionId, userId, channelId, userName);
-    session.lastUserMessage = content;
+    // Build system prompt from request data
+    const sessionForPrompt = {
+      id: sessionMetadata?.sessionId || 'unknown',
+      userId: sessionMetadata?.userId || 'unknown',
+      channelId: sessionMetadata?.channelId || 'unknown',
+      userName: sessionMetadata?.userName || null,
+      lastUserMessage: userContent,
+      metadata: sessionMetadata || {},
+    };
 
-    // 2. Load conversation history
-    const history = this.sessions.loadHistory(sessionId);
+    const systemPrompt = await this.promptBuilder.build(
+      sessionForPrompt,
+      toolSchemas,
+      skillInstructions,
+      memorySnippets,
+    );
 
-    // 3. Resolve available tools for this user
-    const allowedTools = this.toolPolicy
-      ? new Set(this.toolPolicy.getEffectiveToolNames(userId, session))
-      : null;
-    const toolSchemas = this.toolRegistry.getSchemas(allowedTools);
-
-    // 4. Build system prompt (with skill trigger matching)
-    let skillInstructions = null;
-    if (this.skillLoader) {
-      for (const skill of this.skillLoader.getLoadedSkills()) {
-        if (skill.trigger && content.startsWith(skill.trigger)) {
-          skillInstructions = skill.instructions;
-          break;
-        }
-      }
-    }
-    const systemPrompt = await this.promptBuilder.build(session, toolSchemas, skillInstructions);
-
-    // 5. Prepare messages array
+    // Prepare messages array
     const messages = [
       ...history,
-      { role: 'user', content },
+      { role: 'user', content: userContent },
     ];
 
-    // 6. Track new messages to persist later
-    const newMessages = [{ role: 'user', content }];
+    // Track new messages for host persistence
+    const newMessages = [{ role: 'user', content: userContent }];
 
-    // 7. ReAct loop
+    // ReAct loop
     let finalText = '';
     let totalUsage = { inputTokens: 0, outputTokens: 0 };
     const toolsUsed = [];
+    let iterationCount = 0;
+    let status = 'completed';
+    let error = null;
 
-    for (let iteration = 0; iteration < this.maxIterations; iteration++) {
+    for (let iteration = 0; iteration < iterationCap; iteration++) {
+      // Check cancellation between iterations
+      if (cancellationSignal && cancellationSignal.cancelled) {
+        status = 'cancelled';
+        error = { code: 'cancelled', message: 'Execution was cancelled', retriable: false };
+        break;
+      }
+
+      iterationCount = iteration + 1;
+
       // Check if context needs compaction
       if (this.compactor.shouldCompact(messages)) {
         const compacted = await this.compactor.compact(messages);
@@ -88,6 +102,8 @@ export class AgentLoop {
       } catch (err) {
         this.logger.error({ err: err.message, iteration }, 'LLM call failed');
         finalText = 'I encountered an error processing your message. Please try again.';
+        status = 'error';
+        error = { code: 'llm_error', message: err.message, retriable: true };
         break;
       }
 
@@ -101,18 +117,15 @@ export class AgentLoop {
           .map(b => b.text)
           .join('\n');
 
-        // Add assistant response to new messages for persistence
         newMessages.push({ role: 'assistant', content: finalText });
         break;
       }
 
       // If the model wants to use tools
       if (response.stopReason === 'tool_use') {
-        // Push assistant message with tool_use blocks
         messages.push({ role: 'assistant', content: response.content });
         newMessages.push({ role: 'assistant', content: response.content });
 
-        // Execute each tool call
         const toolResults = [];
         for (const block of response.content) {
           if (block.type !== 'tool_use') continue;
@@ -120,29 +133,21 @@ export class AgentLoop {
           toolsUsed.push(block.name);
           this.logger.info({ tool: block.name, iteration }, 'Executing tool');
 
-          const result = await this.toolExecutor.execute(block.name, block.input, session);
+          const result = await this.toolExecutor.execute(block.name, block.input, sessionForPrompt);
 
           toolResults.push({
             type: 'tool_result',
             tool_use_id: block.id,
             content: result.success ? result.result : `Error: ${result.error}`,
           });
-
-          this.eventBus.emit('tool:executed', {
-            tool: block.name,
-            success: result.success,
-            durationMs: result.durationMs,
-            sessionId,
-          });
         }
 
-        // Push tool results as a user message
         messages.push({ role: 'user', content: toolResults });
         newMessages.push({ role: 'user', content: toolResults });
         continue;
       }
 
-      // Unexpected stop reason - extract any text and break
+      // Unexpected stop reason
       finalText = response.content
         .filter(b => b.type === 'text')
         .map(b => b.text)
@@ -152,52 +157,22 @@ export class AgentLoop {
     }
 
     // If we hit max iterations without a final response
-    if (!finalText) {
+    if (!finalText && status === 'completed') {
       finalText = 'I reached the maximum number of processing steps. Here is what I have so far.';
       newMessages.push({ role: 'assistant', content: finalText });
+      status = 'max_iterations';
+      error = { code: 'max_iterations', message: 'ReAct loop hit the iteration cap', retriable: false };
     }
 
-    // 8. Apply outbound guardrails to the final assistant text before persistence
-    if (this.permissionManager) {
-      const guardrail = this.permissionManager.checkModelGuardrails(finalText);
-      finalText = guardrail.content;
-    }
-
-    this._upsertFinalAssistantMessage(newMessages, finalText);
-
-    // 9. Persist new messages
-    this.sessions.appendMessages(sessionId, newMessages);
-
-    // 10. Emit outbound message
-    const outbound = {
-      sessionId: routeSessionId || sessionId,
-      channelId,
-      userId,
+    return {
       content: finalText,
-      replyTo: normalizedMessage.id || null,
-      metadata: {
-        toolsUsed,
-        tokenUsage: totalUsage,
-        processingTimeMs: 0, // Will be set by caller
-      },
+      newMessages,
+      toolsUsed,
+      tokenUsage: totalUsage,
+      iterationCount,
+      status,
+      error,
     };
-
-    this.eventBus.emit('message:outbound', outbound);
-
-    return outbound;
   }
 
-  _upsertFinalAssistantMessage(messages, finalText) {
-    if (!finalText) return;
-
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index];
-      if (message.role === 'assistant' && typeof message.content === 'string') {
-        messages[index] = { ...message, content: finalText };
-        return;
-      }
-    }
-
-    messages.push({ role: 'assistant', content: finalText });
-  }
 }

@@ -15,6 +15,7 @@ export class ToolRegistry {
       handler,
       permissions: toolDef.permissions || [],
       timeout: toolDef.timeout || 30_000,
+      class: toolDef.class || 'runtime',
     });
   }
 

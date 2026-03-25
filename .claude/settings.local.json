@@ -6,7 +6,27 @@
       "Bash(find 'c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/test' -type f \\\\\\(-name *.js \\\\\\))",
       "Bash(find 'c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src' -type f -name *.js)",
       "Bash(npm test:*)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(node --test test/runner.test.js)",
+      "Bash(node --test test/agent-loop-refactor.test.js test/host-dispatcher.test.js)",
+      "Bash(node --test test/pipeline-e2e.test.js test/heartbeat-runner.test.js)",
+      "Bash(node --test test/tool-classes.test.js)",
+      "Bash(node --test test/*.test.js)",
+      "Bash(find /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src -type f -name *.js)",
+      "Bash(grep -r \"sessionForPrompt\\\\|session.*shape\\\\|session.*factory\" /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src --include=*.js)",
+      "Bash(grep -r \"timeout\\\\|_timeout\" /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src --include=*.js)",
+      "Bash(grep -r \"shutdown\\\\|graceful\" /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src --include=*.js)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/**)",
+      "Bash(done)",
+      "Bash(ls \"c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/\"*.md \"c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/\"*.txt)",
+      "Bash(ls \"c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/spec\"*)",
+      "Bash(mv 14-migration-plan.md 14-migration-plan-ARCHIVED.md)",
+      "Bash(rm 11-runner-interface.md 12-host-orchestration.md 13-tool-boundaries.md)",
+      "Bash(claude config:*)",
+      "Read(//c/Users/ue07073/.claude/**)",
+      "Read(//c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/$APPDATA/claude/**)"
     ]
   }
 }

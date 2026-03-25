@@ -1,14 +1,17 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { createExecutionRequest, ExecutionOrigin } from '../core/runner/execution-request.js';
 
 export class HeartbeatScheduler {
-  constructor(agentLoop, sessionManager, db, config, logger) {
-    this.agentLoop = agentLoop;
+  constructor(runner, toolRegistry, sessionManager, db, config, logger) {
+    this.runner = runner;
+    this.toolRegistry = toolRegistry;
     this.sessionManager = sessionManager;
     this.db = db;
     this.config = config;
     this.logger = logger;
     this._interval = null;
+    this._inFlight = false;
     this._heartbeatPath = resolve('HEARTBEAT.md');
   }
 
@@ -45,36 +48,49 @@ export class HeartbeatScheduler {
   }
 
   async tick() {
+    if (this._inFlight) {
+      this.logger.warn('Heartbeat tick skipped: previous execution still running');
+      return;
+    }
+
     const tasks = this._parseTasks();
     if (tasks.length === 0) return;
+
+    this._inFlight = true;
 
     const combinedPrompt = tasks
       .map(t => `## ${t.name}\n${t.instructions}`)
       .join('\n\n');
 
-    // Create a synthetic heartbeat message
-    const heartbeatMessage = {
-      id: `heartbeat_${Date.now()}`,
-      sessionId: 'heartbeat:system',
-      channelId: 'heartbeat',
+    const sessionId = 'heartbeat:system';
+    const history = this.sessionManager.loadHistory(sessionId);
+    const toolSchemas = this.toolRegistry.getSchemas(null); // admin = all tools
+
+    const executionRequest = createExecutionRequest({
+      origin: ExecutionOrigin.SCHEDULED_TASK,
+      sessionId,
       userId: 'system',
+      channelId: 'heartbeat',
       userName: 'Heartbeat',
-      content: `[Heartbeat] Please process the following periodic tasks:\n\n${combinedPrompt}`,
-      attachments: [],
-      replyTo: null,
-      timestamp: Date.now(),
-      raw: {},
-    };
+      sessionMetadata: { sessionId, userId: 'system', channelId: 'heartbeat', userName: 'Heartbeat' },
+      history,
+      userContent: `[Heartbeat] Please process the following periodic tasks:\n\n${combinedPrompt}`,
+      toolSchemas,
+      maxIterations: this.config.maxToolIterations,
+      timeoutMs: this.config.heartbeatIntervalMs,
+    });
 
     this.logger.info({ taskCount: tasks.length }, 'Heartbeat tick');
 
     try {
-      const result = await this.agentLoop.processMessage(heartbeatMessage);
+      const result = await this.runner.execute(executionRequest);
       if (result?.content) {
         this.logger.info({ content: result.content.substring(0, 500) }, 'Heartbeat completed');
       }
     } catch (err) {
       this.logger.error({ err: err.message }, 'Heartbeat processing failed');
+    } finally {
+      this._inFlight = false;
     }
   }
 
