@@ -149,7 +149,17 @@ async function main() {
     // Build request, enqueue, and finalize
     try {
       const request = dispatcher.buildRequest(sanitized);
-      const result = await messageQueue.enqueue(request.sessionId, request);
+
+      // Create streaming callback that emits on the EventBus
+      const onStreamEvent = (event) => {
+        eventBus.emit('stream:event', {
+          ...event,
+          sessionId: message.sessionId,
+          channelId: message.channelId,
+        });
+      };
+
+      const result = await messageQueue.enqueue(request.sessionId, request, onStreamEvent);
       if (result) {
         const outbound = await dispatcher.finalize(request, result, message);
         outbound.metadata.processingTimeMs = Date.now() - start;

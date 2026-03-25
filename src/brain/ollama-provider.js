@@ -9,6 +9,10 @@ export class OllamaProvider extends LLMProvider {
     this.maxRetries = 3;
   }
 
+  get supportsStreaming() {
+    return true;
+  }
+
   async createMessage(systemPrompt, messages, tools = []) {
     const openaiMessages = [
       { role: 'system', content: systemPrompt },
@@ -60,6 +64,143 @@ export class OllamaProvider extends LLMProvider {
         throw err;
       }
     }
+  }
+
+  async streamMessage(systemPrompt, messages, tools = [], onTextDelta) {
+    const openaiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...this._convertMessages(messages),
+    ];
+
+    const body = {
+      model: this.model,
+      messages: openaiMessages,
+      stream: true,
+    };
+
+    if (tools.length > 0) {
+      body.tools = tools.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema,
+        },
+      }));
+    }
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          const err = new Error(`${res.status} ${text}`);
+          err.status = res.status;
+          throw err;
+        }
+
+        // Parse SSE stream and accumulate the full response
+        const accumulated = { content: '', toolCalls: [], usage: { prompt_tokens: 0, completion_tokens: 0 } };
+
+        for await (const chunk of this._parseSSE(res.body)) {
+          if (chunk.choices?.[0]?.delta?.content) {
+            const text = chunk.choices[0].delta.content;
+            accumulated.content += text;
+            if (onTextDelta) onTextDelta(text);
+          }
+          if (chunk.choices?.[0]?.delta?.tool_calls) {
+            for (const tc of chunk.choices[0].delta.tool_calls) {
+              const idx = tc.index ?? accumulated.toolCalls.length;
+              if (!accumulated.toolCalls[idx]) {
+                accumulated.toolCalls[idx] = { id: tc.id || '', function: { name: '', arguments: '' } };
+              }
+              if (tc.id) accumulated.toolCalls[idx].id = tc.id;
+              if (tc.function?.name) accumulated.toolCalls[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) accumulated.toolCalls[idx].function.arguments += tc.function.arguments;
+            }
+          }
+          if (chunk.usage) {
+            accumulated.usage.prompt_tokens = chunk.usage.prompt_tokens || accumulated.usage.prompt_tokens;
+            accumulated.usage.completion_tokens = chunk.usage.completion_tokens || accumulated.usage.completion_tokens;
+          }
+        }
+
+        // Build response in the same format as createMessage
+        return this._convertStreamResult(accumulated);
+      } catch (err) {
+        const retryable = err.status === 429 || err.status === 500 || err.status === 503;
+        if (retryable && attempt < this.maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000;
+          this.logger.warn({ attempt, delay, status: err.status }, 'Retrying Ollama call (stream)');
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  async *_parseSSE(body) {
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for await (const chunk of body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') return;
+        try {
+          yield JSON.parse(data);
+        } catch { /* skip malformed chunks */ }
+      }
+    }
+  }
+
+  _convertStreamResult(accumulated) {
+    const content = [];
+
+    if (accumulated.content) {
+      content.push({ type: 'text', text: accumulated.content });
+    }
+
+    let stopReason = 'end_turn';
+
+    if (accumulated.toolCalls.length > 0) {
+      stopReason = 'tool_use';
+      for (const tc of accumulated.toolCalls) {
+        let args;
+        try {
+          args = JSON.parse(tc.function.arguments);
+        } catch {
+          args = {};
+        }
+        content.push({
+          type: 'tool_use',
+          id: tc.id || `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: tc.function.name,
+          input: args,
+        });
+      }
+    }
+
+    return {
+      content,
+      stopReason,
+      usage: {
+        inputTokens: accumulated.usage.prompt_tokens || 0,
+        outputTokens: accumulated.usage.completion_tokens || 0,
+      },
+    };
   }
 
   _convertMessages(messages) {

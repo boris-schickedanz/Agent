@@ -3,6 +3,8 @@ import { AdapterInterface } from '../adapter-interface.js';
 import { normalizeMessage, normalizeCallbackQuery } from './telegram-normalize.js';
 import { TelegramSender } from './telegram-sender.js';
 
+const STREAM_EDIT_INTERVAL_MS = 1500;
+
 export class TelegramAdapter extends AdapterInterface {
   constructor(eventBus, config, logger) {
     super();
@@ -11,6 +13,7 @@ export class TelegramAdapter extends AdapterInterface {
     this.logger = logger;
     this.bot = null;
     this.sender = null;
+    this._streams = new Map(); // sessionId -> { chatId, messageId, text, timer, dirty }
   }
 
   get channelId() {
@@ -71,10 +74,94 @@ export class TelegramAdapter extends AdapterInterface {
   }
 
   async sendMessage(sessionId, formattedMessage) {
+    // If we already streamed this response, skip the full send
+    if (this._streams.has(sessionId)) {
+      this._streams.delete(sessionId);
+      return;
+    }
     const chatId = formattedMessage.chatId || this._extractChatId(sessionId);
     await this.sender.send(chatId, formattedMessage.text, {
       replyToMessageId: formattedMessage.replyToMessageId,
     });
+  }
+
+  handleStreamEvent(sessionId, event) {
+    switch (event.type) {
+      case 'stream:start':
+        this._streamStart(sessionId);
+        break;
+      case 'stream:delta':
+        this._streamDelta(sessionId, event.text);
+        break;
+      case 'stream:end':
+        this._streamEnd(sessionId);
+        break;
+    }
+  }
+
+  _streamStart(sessionId) {
+    const chatId = this._extractChatId(sessionId);
+    const state = { chatId, messageId: null, text: '', timer: null, dirty: false, sending: false };
+    this._streams.set(sessionId, state);
+
+    // Send initial placeholder message
+    this.bot.sendMessage(chatId, '...', { parse_mode: 'Markdown' })
+      .then((sent) => { state.messageId = sent.message_id; })
+      .catch((err) => this.logger.warn({ err: err.message }, 'Failed to send stream placeholder'));
+  }
+
+  _streamDelta(sessionId, text) {
+    const state = this._streams.get(sessionId);
+    if (!state) return;
+
+    state.text += text;
+    state.dirty = true;
+
+    // Debounce edits
+    if (!state.timer) {
+      state.timer = setTimeout(() => this._flushEdit(sessionId), STREAM_EDIT_INTERVAL_MS);
+    }
+  }
+
+  async _streamEnd(sessionId) {
+    const state = this._streams.get(sessionId);
+    if (!state) return;
+
+    // Clear pending timer and do a final edit
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    await this._flushEdit(sessionId);
+  }
+
+  async _flushEdit(sessionId) {
+    const state = this._streams.get(sessionId);
+    if (!state || !state.dirty || !state.messageId) {
+      if (state) state.timer = null;
+      return;
+    }
+
+    state.dirty = false;
+    state.timer = null;
+
+    try {
+      await this.bot.editMessageText(state.text, {
+        chat_id: state.chatId,
+        message_id: state.messageId,
+        parse_mode: 'Markdown',
+      });
+    } catch (err) {
+      // Markdown parse failure — retry as plain text
+      if (err.message?.includes('parse')) {
+        try {
+          await this.bot.editMessageText(state.text, {
+            chat_id: state.chatId,
+            message_id: state.messageId,
+          });
+        } catch { /* ignore secondary failure */ }
+      }
+    }
   }
 
   _extractChatId(sessionId) {

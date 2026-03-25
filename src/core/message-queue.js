@@ -11,7 +11,7 @@ export class MessageQueue {
     this._shuttingDown = false;
   }
 
-  async enqueue(sessionId, executionRequest) {
+  async enqueue(sessionId, executionRequest, onStreamEvent) {
     if (this._shuttingDown) {
       this.logger.warn({ sessionId }, 'Message rejected: shutting down');
       return null;
@@ -21,7 +21,7 @@ export class MessageQueue {
       if (!this._queues.has(sessionId)) {
         this._queues.set(sessionId, []);
       }
-      this._queues.get(sessionId).push({ executionRequest, resolve, reject });
+      this._queues.get(sessionId).push({ executionRequest, onStreamEvent, resolve, reject });
       this._processNext(sessionId);
     });
   }
@@ -33,10 +33,10 @@ export class MessageQueue {
     if (!queue || queue.length === 0) return;
 
     this._processing.add(sessionId);
-    const { executionRequest, resolve, reject } = queue.shift();
+    const { executionRequest, onStreamEvent, resolve, reject } = queue.shift();
 
     try {
-      const result = await this.runner.execute(executionRequest);
+      const result = await this.runner.execute(executionRequest, onStreamEvent);
       resolve(result);
     } catch (err) {
       this.logger.error({ sessionId, err: err.message }, 'Message processing failed');

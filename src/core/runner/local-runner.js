@@ -14,7 +14,7 @@ export class LocalRunner extends AgentRunner {
     this._shuttingDown = false;
   }
 
-  async execute(request) {
+  async execute(request, onStreamEvent) {
     if (this._shuttingDown) {
       throw new RunnerUnavailableError('Runner is shutting down');
     }
@@ -37,6 +37,7 @@ export class LocalRunner extends AgentRunner {
         sessionMetadata: request.sessionMetadata,
         maxIterations: request.maxIterations,
         cancellationSignal,
+        onStreamEvent,
       };
 
       let loopResult;

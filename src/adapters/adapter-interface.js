@@ -39,4 +39,8 @@ export class AdapterInterface {
   async sendMessage(sessionId, message) {
     throw new Error('Not implemented: sendMessage()');
   }
+
+  handleStreamEvent(sessionId, event) {
+    // Optional: adapters can override to handle streaming events
+  }
 }

@@ -41,6 +41,7 @@ export class AgentLoop {
     sessionMetadata,
     maxIterations,
     cancellationSignal,
+    onStreamEvent,
   }) {
     const iterationCap = maxIterations || this.defaultMaxIterations;
 
@@ -77,6 +78,7 @@ export class AgentLoop {
     let iterationCount = 0;
     let status = 'completed';
     let error = null;
+    let streamStarted = false;
 
     for (let iteration = 0; iteration < iterationCap; iteration++) {
       // Check cancellation between iterations
@@ -95,10 +97,21 @@ export class AgentLoop {
         messages.push(...compacted);
       }
 
-      // Call LLM
+      // Call LLM (streaming if callback provided)
       let response;
       try {
-        response = await this.llm.createMessage(systemPrompt, messages, toolSchemas);
+        if (onStreamEvent && this.llm.supportsStreaming) {
+          if (!streamStarted) {
+            onStreamEvent({ type: 'stream:start' });
+            streamStarted = true;
+          }
+          response = await this.llm.streamMessage(
+            systemPrompt, messages, toolSchemas,
+            (text) => onStreamEvent({ type: 'stream:delta', text }),
+          );
+        } else {
+          response = await this.llm.createMessage(systemPrompt, messages, toolSchemas);
+        }
       } catch (err) {
         this.logger.error({ err: err.message, iteration }, 'LLM call failed');
         finalText = 'I encountered an error processing your message. Please try again.';
@@ -162,6 +175,10 @@ export class AgentLoop {
       newMessages.push({ role: 'assistant', content: finalText });
       status = 'max_iterations';
       error = { code: 'max_iterations', message: 'ReAct loop hit the iteration cap', retriable: false };
+    }
+
+    if (streamStarted && onStreamEvent) {
+      onStreamEvent({ type: 'stream:end' });
     }
 
     return {

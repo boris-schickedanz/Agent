@@ -8,6 +8,7 @@ export class ConsoleAdapter extends AdapterInterface {
     this.config = config;
     this.rl = null;
     this._userId = config.consoleUserId || 'console-user';
+    this._streamed = new Set();
   }
 
   get channelId() {
@@ -62,6 +63,26 @@ export class ConsoleAdapter extends AdapterInterface {
   }
 
   async sendMessage(sessionId, message) {
+    // If we already streamed this response, skip the full message
+    if (this._streamed.has(sessionId)) {
+      this._streamed.delete(sessionId);
+      return;
+    }
     console.log(`\n💬 ${message}\n`);
+  }
+
+  handleStreamEvent(sessionId, event) {
+    switch (event.type) {
+      case 'stream:start':
+        process.stdout.write('\n💬 ');
+        this._streamed.add(sessionId);
+        break;
+      case 'stream:delta':
+        process.stdout.write(event.text);
+        break;
+      case 'stream:end':
+        process.stdout.write('\n\n');
+        break;
+    }
   }
 }

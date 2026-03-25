@@ -18,6 +18,17 @@ export class AdapterRegistry {
         }
       }
     });
+
+    // Wire stream events to the correct adapter
+    this.eventBus.on('stream:event', (event) => {
+      if (event.channelId === adapter.channelId) {
+        try {
+          adapter.handleStreamEvent(event.sessionId, event);
+        } catch (err) {
+          this.eventBus.emit('error', err);
+        }
+      }
+    });
   }
 
   get(channelId) {

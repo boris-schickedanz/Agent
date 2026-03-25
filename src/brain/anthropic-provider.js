@@ -12,17 +12,25 @@ export class AnthropicProvider extends LLMProvider {
     this.maxRetries = 3;
   }
 
-  async createMessage(systemPrompt, messages, tools = []) {
+  get supportsStreaming() {
+    return true;
+  }
+
+  _buildParams(systemPrompt, messages, tools = []) {
     const params = {
       model: this.model,
       max_tokens: 8192,
       system: systemPrompt,
       messages,
     };
-
     if (tools.length > 0) {
       params.tools = tools;
     }
+    return params;
+  }
+
+  async createMessage(systemPrompt, messages, tools = []) {
+    const params = this._buildParams(systemPrompt, messages, tools);
 
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
@@ -41,6 +49,40 @@ export class AnthropicProvider extends LLMProvider {
         if (retryable && attempt < this.maxRetries) {
           const delay = Math.pow(2, attempt) * 1000;
           this.logger.warn({ attempt, delay, status: err.status }, 'Retrying LLM call');
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  async streamMessage(systemPrompt, messages, tools = [], onTextDelta) {
+    const params = this._buildParams(systemPrompt, messages, tools);
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        const stream = this.client.messages.stream(params);
+
+        if (onTextDelta) {
+          stream.on('text', (text) => onTextDelta(text));
+        }
+
+        const response = await stream.finalMessage();
+
+        return {
+          content: response.content,
+          stopReason: response.stop_reason,
+          usage: {
+            inputTokens: response.usage.input_tokens,
+            outputTokens: response.usage.output_tokens,
+          },
+        };
+      } catch (err) {
+        const retryable = err.status === 429 || err.status === 500 || err.status === 529;
+        if (retryable && attempt < this.maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000;
+          this.logger.warn({ attempt, delay, status: err.status }, 'Retrying LLM call (stream)');
           await new Promise(r => setTimeout(r, delay));
           continue;
         }

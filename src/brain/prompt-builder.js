@@ -50,7 +50,10 @@ export class PromptBuilder {
     // 4. Available tools summary
     if (availableTools.length > 0) {
       parts.push(`\n## Available Tools`);
-      parts.push(`You have ${availableTools.length} tools available. Use them when appropriate to help the user.`);
+      parts.push(`You have the following tools available. You MUST use them when appropriate instead of saying you cannot do something:\n`);
+      for (const tool of availableTools) {
+        parts.push(`- **${tool.name}**: ${tool.description}`);
+      }
     }
 
     // 5. Skill instructions
