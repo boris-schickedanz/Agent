@@ -1,0 +1,180 @@
+# Spec 03 — Tool System
+
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+
+## 1. Purpose
+
+The tool system provides the agent with capabilities beyond text generation. Tools are the atomic units of agent action — each is a function with a JSON Schema interface that the LLM can invoke.
+
+## 2. Components
+
+### 2.1 Tool Registry
+
+**File:** `src/tools/tool-registry.js`
+**Class:** `ToolRegistry`
+
+Central registry for all tools (built-in, skill-derived, and custom).
+
+**Interface:**
+
+```js
+register(toolDef: ToolDefinition): void
+get(name: string): ToolDefinition | null
+getAll(): ToolDefinition[]
+getSchemas(filterNames?: Set<string> | null): AnthropicToolSchema[]
+unregister(name: string): void
+has(name: string): boolean
+```
+
+**`getSchemas(filterNames)`** returns tool definitions in Anthropic API format:
+
+```js
+{ name: string, description: string, input_schema: JSONSchema }
+```
+
+If `filterNames` is `null`, all tools are returned (used for admin users with full access). If it's a `Set`, only matching tools are included.
+
+### 2.2 Tool Definition Shape
+
+Every tool registered with the system MUST conform to this shape:
+
+```js
+{
+  name: string,           // Unique, lowercase, kebab-case (e.g., 'http_get')
+  description: string,    // Human-readable, sent to the LLM
+  inputSchema: {          // JSON Schema object
+    type: 'object',
+    properties: { ... },
+    required: [ ... ]     // Optional
+  },
+  handler: async (input: object, context: ToolContext) => string,
+  permissions: string[],  // Required permission scopes (e.g., ['network:outbound'])
+  timeout: number         // Max execution time in ms (default: 30,000)
+}
+```
+
+**ToolContext shape** (passed to every handler):
+
+```js
+{
+  sessionId: string,
+  userId: string,
+  channelId: string,
+  logger: Logger
+}
+```
+
+**Handler contract:**
+- MUST return a `string` (or a value that will be `JSON.stringify`'d).
+- MUST NOT throw for expected error conditions — return an error description string instead.
+- MAY throw for unexpected errors (these are caught by the executor).
+- MUST respect the timeout; long-running work should be cancellable.
+
+### 2.3 Tool Executor
+
+**File:** `src/tools/tool-executor.js`
+**Class:** `ToolExecutor`
+
+Executes tool calls with validation, permission checking, timeout enforcement, and error handling.
+
+**Interface:**
+
+```js
+async execute(
+  toolName: string,
+  toolInput: object,
+  session: Session
+): Promise<ToolResult>
+```
+
+**ToolResult shape:**
+
+```js
+{
+  success: boolean,
+  result: string | null,
+  error: string | null,
+  durationMs: number
+}
+```
+
+**Execution flow:**
+
+1. **Lookup** — `toolRegistry.get(toolName)`. If not found → `{ success: false, error: 'Unknown tool' }`.
+2. **Permission check** — `toolPolicy.isAllowed(toolName, session.userId, session)`. If denied → `{ success: false, error: 'Permission denied' }`.
+3. **Input validation** — `validateInput(toolInput, tool.inputSchema)`. If invalid → `{ success: false, error: 'Invalid input: ...' }`.
+4. **Execution** — `Promise.race([handler(input, context), timeoutPromise])`.
+5. **Result coercion** — if handler returns non-string, `JSON.stringify` it.
+6. **Logging** — log tool name and duration on success; log error on failure.
+
+### 2.4 Tool Schema Validation
+
+**File:** `src/tools/tool-schema.js`
+
+**Exports:**
+
+```js
+jsonSchemaToZod(schema: JSONSchema): ZodSchema
+validateInput(input: object, schema: JSONSchema): { valid: boolean, data?: any, errors: string[] }
+```
+
+**Supported JSON Schema types:** `string` (with `minLength`, `maxLength`, `enum`), `number`, `integer` (with `minimum`, `maximum`), `boolean`, `array` (with `items`), `object` (with `properties`, `required`).
+
+Unsupported types fall back to `z.any()`.
+
+## 3. Built-in Tools
+
+### 3.1 System Tools
+
+**File:** `src/tools/built-in/system-tools.js`
+**Registration:** `registerSystemTools(registry)`
+
+| Tool | Description | Input | Permissions |
+|------|-------------|-------|-------------|
+| `get_current_time` | Current date/time in a given timezone | `{ timezone?: string }` — IANA name, default UTC | None |
+| `wait` | Async sleep | `{ seconds: number }` — 1-30, clamped | None |
+
+### 3.2 HTTP Tools
+
+**File:** `src/tools/built-in/http-tools.js`
+**Registration:** `registerHttpTools(registry)`
+
+| Tool | Description | Input | Permissions |
+|------|-------------|-------|-------------|
+| `http_get` | Fetch a URL (GET) | `{ url: string, headers?: object }` | `network:outbound` |
+| `http_post` | POST JSON to a URL | `{ url: string, body?: object, headers?: object }` | `network:outbound` |
+
+**Constraints:**
+- Request timeout: 15 seconds (`AbortSignal.timeout`)
+- Tool timeout: 20 seconds
+- Response truncation: 10,000 characters max
+- Non-OK responses return `HTTP {status}: {body}` (truncated to 1,000 chars)
+
+### 3.3 Memory Tools
+
+**File:** `src/tools/built-in/memory-tools.js`
+**Registration:** `registerMemoryTools(registry, persistentMemory, memorySearch)`
+
+| Tool | Description | Input | Permissions |
+|------|-------------|-------|-------------|
+| `save_memory` | Save to persistent memory | `{ key: string, content: string }` | `memory:write` |
+| `search_memory` | FTS5 search across memories | `{ query: string, limit?: number (1-20, default 5) }` | `memory:read` |
+| `list_memories` | List all memory keys | (none) | `memory:read` |
+
+## 4. Adding a New Built-in Tool
+
+1. Create `src/tools/built-in/<name>-tools.js` exporting a `register<Name>Tools(registry, ...deps)` function.
+2. Define one or more tools using `registry.register({ name, description, inputSchema, handler, permissions })`.
+3. Call the registration function in `src/index.js`, passing any required dependencies.
+4. Add the tool name to the appropriate policy profile(s) in `src/security/tool-policy.js`.
+5. Update this spec with the tool's entry in the built-in tools table.
+
+## 5. Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Handlers return strings | The LLM consumes text. Returning strings avoids serialization ambiguity. |
+| Timeout via `Promise.race` | No external dependencies. Works with any async handler. |
+| Zod for validation | Runtime type safety. Zod is already a dependency for skill schema validation. |
+| Permission scopes as strings | Simple pattern matching (`memory:write`, `network:*`). No ACL complexity needed at this scale. |
+| Tool executor logs all executions | Audit trail for debugging and security review. |

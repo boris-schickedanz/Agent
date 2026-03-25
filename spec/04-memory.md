@@ -1,0 +1,119 @@
+# Spec 04 — Memory System
+
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+
+## 1. Purpose
+
+The memory system provides both short-term (per-session conversation history) and long-term (persistent, cross-session) storage. It enables the agent to maintain context within a conversation and recall knowledge across conversations.
+
+## 2. Components
+
+### 2.1 Conversation Memory
+
+**File:** `src/memory/conversation-memory.js`
+**Class:** `ConversationMemory`
+
+SQLite-backed message history, scoped per session.
+
+**Interface:**
+
+```js
+append(sessionId: string, role: string, content: any): void
+appendMany(sessionId: string, messages: Message[]): void        // Transactional
+getHistory(sessionId: string, limit?: number): Message[]         // Default limit: 50
+getFullHistory(sessionId: string): Message[]
+clearSession(sessionId: string): void
+replaceHistory(sessionId: string, messages: Message[]): void     // Used after compaction
+```
+
+**Storage format:**
+- `content` is stored as a string. Objects are `JSON.stringify`'d on write and `JSON.parse`'d on read.
+- `token_estimate` is computed as `Math.ceil(content.length / 4)`.
+- `appendMany` wraps all inserts in a single SQLite transaction for atomicity.
+
+**Message shape returned by `getHistory`:**
+
+```js
+{ role: 'user' | 'assistant' | 'system', content: string | ContentBlock[] }
+```
+
+### 2.2 Persistent Memory
+
+**File:** `src/memory/persistent-memory.js`
+**Class:** `PersistentMemory`
+
+Long-term memory stored as markdown files on disk, with an FTS5 index in SQLite for search.
+
+**Interface:**
+
+```js
+async save(key: string, content: string, metadata?: object): void
+async load(key: string): string | null
+async list(): string[]
+async delete(key: string): void
+```
+
+**Storage:**
+- Files are written to `{config.dataDir}/memory/{safeKey}.md`
+- `safeKey` is derived from `key` by replacing non-alphanumeric characters (except `_` and `-`) with `_`
+- On `save`, the FTS5 index (`memory_fts` table) is updated: old entry deleted, new entry inserted
+- On `delete`, both the file and FTS5 entry are removed
+
+**Directory:** `{config.dataDir}/memory/` — created automatically if missing.
+
+### 2.3 Memory Search
+
+**File:** `src/memory/memory-search.js`
+**Class:** `MemorySearch`
+
+Full-text search across persistent memory using SQLite FTS5.
+
+**Interface:**
+
+```js
+search(query: string, limit?: number): SearchResult[]    // Default limit: 5
+reindex(persistentMemory: PersistentMemory): void
+```
+
+**SearchResult shape:**
+
+```js
+{ key: string, content: string, metadata: object }
+```
+
+**Query processing:**
+- Special characters are stripped from the query (`/[^\w\s]/g` → space)
+- Empty or whitespace-only queries return `[]`
+- Results are ordered by FTS5 rank (relevance)
+- Search failures (malformed queries, FTS errors) return `[]` silently
+
+**Reindex:** Drops all FTS5 entries and rebuilds from all files in the memory directory. Use for recovery or after manual file edits.
+
+## 3. How Memory Is Used in the Agent Loop
+
+1. **Prompt building:** `PromptBuilder.build()` calls `memorySearch.search(session.lastUserMessage, 5)` to find relevant memories and includes them in the system prompt.
+2. **Tool use:** The agent can explicitly call `save_memory`, `search_memory`, and `list_memories` tools to manage persistent memory.
+3. **Context compaction:** When conversation history is compacted, the summary replaces older messages in conversation memory via `replaceHistory`.
+
+## 4. FTS5 Configuration
+
+The `memory_fts` virtual table uses:
+- Tokenizer: `porter unicode61` (Porter stemming + Unicode normalization)
+- Columns indexed: `key`, `content`, `metadata`
+- Ranking: BM25 (FTS5 default)
+
+## 5. Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| SQLite for conversation history | Atomic writes, queryable, no external service. WAL mode handles concurrent reads. |
+| Markdown files for persistent memory | Human-readable, editable, versionable. Easy to inspect and manually modify. |
+| FTS5 for search | Built into SQLite. Porter stemming handles word variations. No external search service needed. |
+| Dual storage (files + FTS index) | Files are the source of truth (human-editable). FTS is a derived index for fast search. |
+| Silent search failures | Memory search is a non-critical enhancement. A search failure should never block message processing. |
+
+## 6. Extension Points
+
+- **Semantic search:** Replace or augment FTS5 with embedding-based search (e.g., store embeddings in SQLite, compute cosine similarity).
+- **Memory categories:** Add a `category` column to FTS5 and file frontmatter to organize memories by type.
+- **Memory expiry:** Add a `ttl` or `expires_at` field. The heartbeat scheduler can prune expired memories.
