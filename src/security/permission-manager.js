@@ -20,7 +20,9 @@ export class PermissionManager {
       }
 
       // New user - auto-register
-      const role = this.config.autoApproveUsers ? 'user' : 'pending';
+      const approved = this.config.autoApproveUsers === true
+        || (Array.isArray(this.config.autoApproveUsers) && this.config.autoApproveUsers.includes(userId));
+      const role = approved ? 'user' : 'pending';
       this.db.prepare(
         'INSERT OR IGNORE INTO users (id, channel_id, role) VALUES (?, ?, ?)'
       ).run(userId, channelId, role);
