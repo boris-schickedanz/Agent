@@ -13,6 +13,7 @@ export class HostDispatcher {
     memorySearch,
     skillLoader,
     permissionManager,
+    historyPruner,
     eventBus,
     logger,
     config,
@@ -23,6 +24,7 @@ export class HostDispatcher {
     this.memorySearch = memorySearch;
     this.skillLoader = skillLoader || null;
     this.permissionManager = permissionManager || null;
+    this.historyPruner = historyPruner || null;
     this.eventBus = eventBus;
     this.logger = logger;
     this.config = config;
@@ -38,7 +40,10 @@ export class HostDispatcher {
     );
     session.lastUserMessage = sanitizedMessage.content;
 
-    const history = this.sessionManager.loadHistory(sessionId);
+    let history = this.sessionManager.loadHistory(sessionId);
+    if (this.historyPruner) {
+      history = this.historyPruner.prune(history);
+    }
 
     const allowedToolNames = this.toolPolicy
       ? new Set(this.toolPolicy.getEffectiveToolNames(sanitizedMessage.userId, session))

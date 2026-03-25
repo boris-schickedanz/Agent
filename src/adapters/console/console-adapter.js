@@ -80,6 +80,9 @@ export class ConsoleAdapter extends AdapterInterface {
       case 'stream:delta':
         process.stdout.write(event.text);
         break;
+      case 'stream:status':
+        process.stdout.write(`\n⏳ ${event.text}\n`);
+        break;
       case 'stream:end':
         process.stdout.write('\n\n');
         break;

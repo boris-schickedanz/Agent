@@ -23,15 +23,18 @@ Define the architectural split between the **host** (control plane) and the **ru
 | Adapter lifecycle (start/stop) | Host | `AdapterRegistry` |
 | Inbound message normalization | Host | Adapters |
 | Security pipeline (rate limit, permissions, sanitization) | Host | `index.js` event handler |
+| Host command interception (`/new`) | Host | `CommandRouter` |
 | Message queueing and per-session serialization | Host | `MessageQueue` |
 | Session resolution and creation | Host | `HostDispatcher` → `SessionManager` |
 | Conversation history loading | Host | `HostDispatcher` → `SessionManager` |
+| History pruning (trim tool results in-memory) | Host | `HostDispatcher` → `HistoryPruner` |
 | Tool resolution (policy → schemas) | Host | `HostDispatcher` → `ToolPolicy`, `ToolRegistry` |
 | Memory search | Host | `HostDispatcher` → `MemorySearch` |
 | Skill trigger matching | Host | `HostDispatcher` → `SkillLoader` |
 | System prompt assembly | Runtime | `PromptBuilder` (from data in request) |
 | ReAct loop (LLM + tool iteration) | Runtime | `AgentLoop` |
 | Tool execution | Runtime | `ToolExecutor` |
+| Pre-compaction memory flush | Runtime | `AgentLoop._memoryFlush()` |
 | Context compaction | Runtime | `ContextCompactor` |
 | Outbound guardrails | Host | `HostDispatcher` → `PermissionManager` |
 | Conversation history persistence | Host | `HostDispatcher` → `SessionManager` |
@@ -46,9 +49,14 @@ Define the architectural split between the **host** (control plane) and the **ru
 ```
 Adapter → EventBus(message:inbound) → Security Pipeline
                                            ↓
+                                    CommandRouter.handle()
+                                      /new → clear history, respond, stop
+                                      other → continue pipeline
+                                           ↓
                                     HostDispatcher.buildRequest()
                                       Session resolution
                                       History loading
+                                      History pruning (trim tool results)
                                       Tool resolution
                                       Memory search
                                       Skill matching
@@ -61,7 +69,8 @@ Adapter → EventBus(message:inbound) → Security Pipeline
                                       [Runtime]
                                       Prompt building
                                       ReAct loop (LLM + tools)
-                                      Context compaction
+                                      Pre-compaction memory flush (optional)
+                                      Context compaction (rolling)
                                            ↓
                                     ExecutionResult returned
                                            ↓
@@ -221,7 +230,8 @@ Extracts host concerns into a single orchestration point. Two methods: `buildReq
 ```js
 new HostDispatcher({
   sessionManager, toolPolicy, toolRegistry, memorySearch,
-  skillLoader, permissionManager, eventBus, logger, config,
+  skillLoader, permissionManager, historyPruner,
+  eventBus, logger, config,
 })
 ```
 
@@ -229,10 +239,11 @@ new HostDispatcher({
 
 1. `sessionManager.resolveSessionId(message)` + `getOrCreate()`
 2. `sessionManager.loadHistory(sessionId)`
-3. `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas(allowedTools)`
-4. Skill trigger matching (iterate `skillLoader.getLoadedSkills()`)
-5. `memorySearch.search(content, 5)` — truncate each to 300 chars, catch errors silently
-6. Return `createExecutionRequest({ ... })`
+3. `historyPruner.prune(history)` — trim oversized tool results in-memory
+4. `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas(allowedTools)`
+5. Skill trigger matching (iterate `skillLoader.getLoadedSkills()`)
+6. `memorySearch.search(content, 5)` — truncate each to 300 chars, catch errors silently
+7. Return `createExecutionRequest({ ... })`
 
 ### 9.2 finalize(request, result, originalMessage?)
 

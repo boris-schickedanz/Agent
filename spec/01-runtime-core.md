@@ -93,7 +93,7 @@ appendMessages(sessionId: string, messages: Message[]): void
 
 The heart of the framework. Implements the ReAct (Reasoning + Acting) pattern. The loop is a pure runtime component: it accepts pre-loaded data and returns structured results. It does not perform session resolution, history loading, tool resolution, persistence, guardrails, or outbound emission — those are host concerns handled by `HostDispatcher`.
 
-**Constructor dependencies:** `llmProvider`, `promptBuilder`, `toolExecutor`, `contextCompactor`, `logger`, `config`
+**Constructor dependencies:** `llmProvider`, `promptBuilder`, `toolExecutor`, `contextCompactor`, `logger`, `config` (reads `compactionMemoryFlush` and `maxContextTokens` from config)
 
 **Interface:**
 
@@ -116,7 +116,7 @@ async processMessage({
 2. **Message array construction** — `[...history, { role: 'user', content: userContent }]`
 3. **ReAct loop** (max `maxIterations` iterations):
    - a. **Cancellation check** — if `cancellationSignal.cancelled`, set `status: 'cancelled'`, break.
-   - b. **Compaction check** — if `contextCompactor.shouldCompact(messages)`, compact.
+   - b. **Compaction check** — if `contextCompactor.shouldCompact(messages)`: (1) optionally run a pre-compaction memory flush turn (see [Spec 15 §4](15-conversations-context.md)), (2) compact. Memory flush runs at most once per `processMessage()` call.
    - c. **LLM call** — `llmProvider.createMessage(systemPrompt, messages, toolSchemas)`
    - d. **If `stopReason === 'end_turn'` or `'stop'`** — extract text blocks, break.
    - e. **If `stopReason === 'tool_use'`** — for each `tool_use` block: execute via `toolExecutor.execute(name, input, sessionForPrompt)`, collect `tool_result` blocks, push onto messages, continue loop.
@@ -160,10 +160,11 @@ async finalize(request: ExecutionRequest, result: ExecutionResult, originalMessa
 **`buildRequest` steps:**
 1. Session resolution — `sessionManager.resolveSessionId(message)` + `getOrCreate()`
 2. History loading — `sessionManager.loadHistory(sessionId)`
-3. Tool resolution — `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas()`
-4. Skill matching — iterate `skillLoader.getLoadedSkills()` for trigger match
-5. Memory search — `memorySearch.search(content, 5)`, truncate to 300 chars each
-6. Assemble `ExecutionRequest` with all resolved data
+3. History pruning — `historyPruner.prune(history)` trims oversized tool results in-memory (see [Spec 15 §3](15-conversations-context.md))
+4. Tool resolution — `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas()`
+5. Skill matching — iterate `skillLoader.getLoadedSkills()` for trigger match
+6. Memory search — `memorySearch.search(content, 5)`, truncate to 300 chars each
+7. Assemble `ExecutionRequest` with all resolved data
 
 **`finalize` steps:**
 1. Apply guardrails — `permissionManager.checkModelGuardrails(content)`
@@ -192,16 +193,17 @@ Defined in `src/index.js`. Components are instantiated in strict dependency orde
 6. Memory subsystems (ConversationMemory, PersistentMemory, MemorySearch)
 7. Tool Registry + built-in tool registration
 8. Security layer (InputSanitizer, RateLimiter, ToolPolicy, PermissionManager)
-9. Prompt Builder
+9. Prompt Builder, History Pruner
 10. Session Manager, Tool Executor, AgentLoop (runtime core)
 11. LocalRunner (wraps AgentLoop)
 12. MessageQueue (accepts runner)
 13. Skill Loader (optional, loaded before dispatcher)
-14. Host Dispatcher (owns session/tool/memory/skill resolution and finalization)
-15. Event bus wiring (`message:inbound` handler with security pipeline)
-16. Adapter Registry + adapter registration (Telegram if configured, Console always)
-17. Heartbeat Scheduler (optional, uses runner)
-18. `adapterRegistry.startAll()`
+14. Command Router (handles `/new` and other host commands before LLM pipeline)
+15. Host Dispatcher (owns session/tool/memory/skill resolution, pruning, and finalization)
+16. Event bus wiring (`message:inbound` handler with security pipeline + command routing)
+17. Adapter Registry + adapter registration (Telegram if configured, Console always)
+18. Heartbeat Scheduler (optional, uses runner)
+19. `adapterRegistry.startAll()`
 
 **Inbound message pipeline (wired on EventBus):**
 
@@ -210,7 +212,8 @@ message:inbound
   → rateLimiter.consume(userId)              — reject if rate limited
   → permissionManager.checkAccess(userId, channelId)  — reject if blocked
   → inputSanitizer.sanitize(message)         — strip dangerous content
-  → dispatcher.buildRequest(sanitized)       — resolve session, tools, memory, skills
+  → commandRouter.handle(sanitized)          — intercept /new etc. (see Spec 15)
+  → dispatcher.buildRequest(sanitized)       — resolve session, tools, memory, skills, prune history
   → messageQueue.enqueue(sessionId, request) — per-session serialization → runner.execute()
   → dispatcher.finalize(request, result)     — guardrails, persistence, delivery
 ```

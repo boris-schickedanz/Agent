@@ -1,3 +1,5 @@
+import { MemoryFlusher } from '../brain/memory-flusher.js';
+
 /**
  * The core ReAct agent loop.
  * Accepts pre-loaded data from the host and returns structured results.
@@ -19,6 +21,9 @@ export class AgentLoop {
     this.compactor = contextCompactor;
     this.logger = logger;
     this.defaultMaxIterations = config.maxToolIterations;
+    this.memoryFlushEnabled = config.compactionMemoryFlush !== false;
+    this.maxContextTokens = config.maxContextTokens;
+    this.memoryFlusher = new MemoryFlusher(llmProvider, toolExecutor, logger);
   }
 
   /**
@@ -79,6 +84,7 @@ export class AgentLoop {
     let status = 'completed';
     let error = null;
     let streamStarted = false;
+    let flushedThisTurn = false;
 
     for (let iteration = 0; iteration < iterationCap; iteration++) {
       // Check cancellation between iterations
@@ -92,6 +98,29 @@ export class AgentLoop {
 
       // Check if context needs compaction
       if (this.compactor.shouldCompact(messages)) {
+        // Memory flush: let the LLM save important facts before compaction
+        if (this.memoryFlushEnabled && !flushedThisTurn) {
+          flushedThisTurn = true;
+          const flushTokens = this.llm.estimateTokens(messages) + 500;
+          if (flushTokens < this.maxContextTokens) {
+            if (onStreamEvent) onStreamEvent({ type: 'stream:status', text: 'Saving important context...' });
+            try {
+              const flushPrompt = [
+                '[System] Context compaction will run after this turn.',
+                'Review the conversation and save any important information to long-term memory using the save_memory tool. Focus on:',
+                '- Key decisions and their reasoning',
+                '- User preferences and corrections',
+                '- Facts or data that would be lost in a summary',
+                '- Ongoing task state or progress',
+                'Only save what is genuinely important. Do not respond to the user.',
+              ].join('\n');
+              await this.memoryFlusher.flush(systemPrompt, messages, toolSchemas, sessionForPrompt, flushPrompt);
+            } catch (err) {
+              this.logger.warn({ err: err.message }, 'Memory flush failed, proceeding with compaction');
+            }
+          }
+        }
+        if (onStreamEvent) onStreamEvent({ type: 'stream:status', text: 'Compacting conversation history...' });
         const compacted = await this.compactor.compact(messages);
         messages.length = 0;
         messages.push(...compacted);

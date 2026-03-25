@@ -30,7 +30,10 @@
       "Bash(sqlite3 ./data/agent-core.db \"SELECT * FROM users;\")",
       "Bash(node -e \"const Database = require\\(''better-sqlite3''\\); const db = new Database\\(''./data/agent-core.db''\\); console.log\\(db.prepare\\(''SELECT * FROM users''\\).all\\(\\)\\); db.close\\(\\);\")",
       "Bash(node -e \"const Database = require\\(''better-sqlite3''\\); const db = new Database\\(''./data/agent-core.db''\\); const r = db.prepare\\(\"\"DELETE FROM users WHERE id = ''console-user''\"\"\\).run\\(\\); console.log\\(''Deleted:'', r.changes\\); db.close\\(\\);\")",
-      "Bash(node --input-type=module -e \":*)"
+      "Bash(node --input-type=module -e \":*)",
+      "WebSearch",
+      "WebFetch(domain:docs.openclaw.ai)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

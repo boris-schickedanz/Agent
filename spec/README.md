@@ -18,6 +18,7 @@ Start with specs 01 and 10 for the overall architecture, then read subsystem spe
 | [08 — Database](08-database.md) | SQLite schema, migrations, connection management |
 | [09 — Configuration](09-configuration.md) | Environment variables, defaults, type coercion |
 | [10 — Host & Runner Architecture](10-host-runtime-boundary.md) | Host/runtime boundary, runner interface, ExecutionRequest/Result, HostDispatcher, orchestration flow, parallelism, timeout/cancellation |
+| [15 — Session Reset & Context Management](15-conversations-context.md) | `/new` command, tool result pruning, pre-compaction memory flush, rolling compression |
 
 ## Archived
 

@@ -1,6 +1,6 @@
 # Spec 02 — Brain (LLM Layer)
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-25 (context management layers added)
 
 ## 1. Purpose
 
@@ -104,7 +104,7 @@ async build(
 **File:** `src/brain/context-compactor.js`
 **Class:** `ContextCompactor`
 
-Manages context window size by summarizing older messages when the estimated token count exceeds a threshold.
+Manages context window size by summarizing older messages when the estimated token count exceeds a threshold. Uses rolling compression and configurable retention. See [Spec 15](15-conversations-context.md) for full design rationale.
 
 **Interface:**
 
@@ -116,16 +116,38 @@ async compact(messages: Message[]): Message[]
 **Algorithm:**
 
 1. `shouldCompact` returns `true` if `llmProvider.estimateTokens(messages) > config.compactionThreshold`
-2. If fewer than 4 messages, skip compaction (not enough to summarize).
-3. Split messages at the midpoint.
-4. Send the older half to the LLM with a summarization prompt: *"Summarize the following conversation concisely, preserving key facts, decisions, tool results, and user preferences."*
-5. Replace the older half with a single synthetic message: `{ role: 'user', content: '[Previous conversation summary]: ...' }`
-6. Return `[summaryMessage, ...recentMessages]`.
-7. If summarization LLM call fails, fall back to simply dropping the older half (truncation).
+2. If fewer than `retainMessages + 4` messages, skip compaction (not enough to summarize).
+3. Split at `messages.length - retainMessages` (keeps a configurable number of recent messages intact).
+4. **Rolling compression:** If the first message is a prior summary (`[Previous conversation summary]`), the summarization prompt instructs the LLM to merge the old summary with the newly-old messages into a single updated summary. Otherwise, a standard summarization prompt is used.
+5. Messages are serialized via `_formatMessages()` as `[role]: content` blocks.
+6. Replace the older portion with a single synthetic message: `{ role: 'user', content: '[Previous conversation summary]: ...' }`
+7. Return `[summaryMessage, ...recentMessages]`.
+8. If summarization LLM call fails, fall back to simply dropping the older portion (truncation).
 
 **Configuration:**
 - `config.compactionThreshold`: token count triggering compaction (default: 80,000)
+- `config.compactionRetainMessages`: number of recent messages to keep after compaction (default: 10)
 - `config.maxContextTokens`: informational upper bound (default: 100,000)
+
+### 2.5 History Pruner
+
+**File:** `src/brain/history-pruner.js`
+**Class:** `HistoryPruner`
+
+Trims oversized tool results in conversation history to reclaim context space. Operates in-memory only — does not modify the database. Called by `HostDispatcher.buildRequest()` after loading history, before every LLM request.
+
+**Interface:**
+
+```js
+prune(messages: Message[]): Message[]   // Returns new array, does not mutate input
+```
+
+**Algorithm:** For each message with array content, any `tool_result` block whose text exceeds `config.pruneThreshold` (default: 4000 chars) is trimmed to head + `...[pruned N chars]...` + tail.
+
+**Configuration:**
+- `config.pruneThreshold`: chars above which tool results are pruned (default: 4000)
+- `config.pruneHead`: chars to keep from start (default: 1500)
+- `config.pruneTail`: chars to keep from end (default: 1500)
 
 ## 3. Adding a New LLM Provider
 
@@ -135,12 +157,29 @@ async compact(messages: Message[]): Message[]
 4. Wire it in `src/index.js` based on a config flag (e.g., `config.llmProvider === 'openai'`).
 5. Update this spec.
 
+### 2.6 Memory Flusher
+
+**File:** `src/brain/memory-flusher.js`
+**Class:** `MemoryFlusher`
+
+Shared logic for pre-compaction and pre-clear memory flush. Sends a single LLM turn restricted to `save_memory`, then executes any tool calls. Used by both `AgentLoop` (before compaction) and `CommandRouter` (before `/new` clear). See [Spec 15 §4](15-conversations-context.md) for design rationale.
+
+**Interface:**
+
+```js
+async flush(systemPrompt, messages, toolSchemas, sessionForPrompt, flushPrompt): void
+```
+
+The `messages` array is mutated: the flush prompt, LLM response, and tool results are appended. The `toolSchemas` array is filtered internally to expose only `save_memory`. Tool execution is also guarded to only allow `save_memory` calls.
+
 ## 4. Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | Abstract provider interface | Allows swapping LLMs (Anthropic, OpenAI, local) without changing the agent loop. |
 | Prompt assembly in a dedicated class | Keeps the agent loop clean. Prompt logic is independently testable. |
-| Mid-point split for compaction | Simple, predictable. Preserves the most recent context which is most relevant. |
+| Configurable retention over midpoint split | A fixed retention count gives predictable context budgets. Midpoint split retains a variable number depending on history length. |
+| Rolling compression over summary chains | Chaining summaries compounds information loss. Merging the old summary with new messages maintains coherence. |
 | Fallback to truncation on compaction failure | Guarantees the loop can always continue, even if the summarization call fails. |
+| Pruning as a separate layer from compaction | Pruning is cheap (string slicing), reversible (DB untouched), and effective for the most common bloat source (tool results). Delays compaction. |
 | SOUL.md cached for process lifetime | Avoids filesystem reads on every message. Restart to reload. |

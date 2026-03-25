@@ -31,6 +31,11 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `RATE_LIMIT_MESSAGES_PER_MINUTE` | `rateLimitPerMinute` | number | No | `20` | Max messages per user per minute |
 | `MAX_CONTEXT_TOKENS` | `maxContextTokens` | number | No | `100000` | Informational upper bound for context window |
 | `COMPACTION_THRESHOLD` | `compactionThreshold` | number | No | `80000` | Token estimate at which context compaction triggers |
+| `COMPACTION_RETAIN_MESSAGES` | `compactionRetainMessages` | number | No | `10` | Number of recent messages to keep after compaction |
+| `COMPACTION_MEMORY_FLUSH` | `compactionMemoryFlush` | boolean | No | `true` | Enable pre-compaction memory flush (saves important facts before summarizing) |
+| `PRUNE_THRESHOLD` | `pruneThreshold` | number | No | `4000` | Chars above which tool results are pruned in-memory |
+| `PRUNE_HEAD` | `pruneHead` | number | No | `1500` | Chars to keep from start of pruned tool result |
+| `PRUNE_TAIL` | `pruneTail` | number | No | `1500` | Chars to keep from end of pruned tool result |
 | `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean | No | `false` | If `true`, new users get `user` role. If `false`, they get `pending` (restricted). |
 | `MASTER_KEY` | `masterKey` | string | No | `''` | Encryption key for the API key store. Falls back to `ANTHROPIC_API_KEY` if empty. |
 

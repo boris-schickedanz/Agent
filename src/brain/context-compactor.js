@@ -2,6 +2,7 @@ export class ContextCompactor {
   constructor(llmProvider, config) {
     this.llmProvider = llmProvider;
     this.threshold = config.compactionThreshold;
+    this.retainMessages = config.compactionRetainMessages ?? 10;
   }
 
   shouldCompact(messages) {
@@ -9,29 +10,26 @@ export class ContextCompactor {
   }
 
   async compact(messages) {
-    if (messages.length < 4) return messages;
+    // Need enough messages to both summarize and retain
+    const minMessages = this.retainMessages + 4;
+    if (messages.length < minMessages) return messages;
 
-    // Keep the most recent messages, summarize the older ones
-    const splitPoint = Math.floor(messages.length / 2);
+    const splitPoint = messages.length - this.retainMessages;
     const olderMessages = messages.slice(0, splitPoint);
     const recentMessages = messages.slice(splitPoint);
 
-    const summaryPrompt = 'Summarize the following conversation concisely, preserving key facts, decisions, tool results, and user preferences. Output only the summary.';
+    // Detect prior summary for rolling compression
+    const hasPriorSummary = typeof olderMessages[0]?.content === 'string'
+      && olderMessages[0].content.startsWith('[Previous conversation summary]');
 
-    const summaryMessages = [
-      {
-        role: 'user',
-        content: `${summaryPrompt}\n\n${JSON.stringify(olderMessages.map(m => ({
-          role: m.role,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-        })))}`
-      }
-    ];
+    const prompt = hasPriorSummary
+      ? 'You are updating a running conversation summary. The previous summary and new messages since then are provided below. Produce a single merged summary that incorporates both. Preserve key facts, decisions, tool results, and user preferences. Output only the summary.'
+      : 'Summarize the following conversation concisely, preserving key facts, decisions, tool results, and user preferences. Output only the summary.';
 
     try {
       const response = await this.llmProvider.createMessage(
         'You are a conversation summarizer. Be concise but preserve important details.',
-        summaryMessages,
+        [{ role: 'user', content: `${prompt}\n\n${this._formatMessages(olderMessages)}` }],
         []
       );
 
@@ -40,15 +38,22 @@ export class ContextCompactor {
         .map(b => b.text)
         .join('\n');
 
-      const summaryMessage = {
-        role: 'user',
-        content: `[Previous conversation summary]: ${summaryText}`
-      };
-
-      return [summaryMessage, ...recentMessages];
+      return [
+        { role: 'user', content: `[Previous conversation summary]: ${summaryText}` },
+        ...recentMessages,
+      ];
     } catch {
       // If summarization fails, just truncate
       return recentMessages;
     }
+  }
+
+  _formatMessages(messages) {
+    return messages.map(m => {
+      const content = typeof m.content === 'string'
+        ? m.content
+        : JSON.stringify(m.content);
+      return `[${m.role}]: ${content}`;
+    }).join('\n\n');
   }
 }

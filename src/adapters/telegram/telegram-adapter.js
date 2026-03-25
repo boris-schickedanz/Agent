@@ -93,6 +93,11 @@ export class TelegramAdapter extends AdapterInterface {
       case 'stream:delta':
         this._streamDelta(sessionId, event.text);
         break;
+      case 'stream:status': {
+        const chatId = this._extractChatId(sessionId);
+        this.bot.sendChatAction(chatId, 'typing').catch(() => {});
+        break;
+      }
       case 'stream:end':
         this._streamEnd(sessionId);
         break;

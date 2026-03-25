@@ -16,10 +16,12 @@ import { LocalRunner } from './core/runner/local-runner.js';
 import { HostDispatcher } from './core/host-dispatcher.js';
 import { AdapterRegistry } from './adapters/adapter-registry.js';
 import { ConsoleAdapter } from './adapters/console/console-adapter.js';
+import { CommandRouter } from './core/command-router.js';
 import { InputSanitizer } from './security/input-sanitizer.js';
 import { RateLimiter } from './security/rate-limiter.js';
 import { ToolPolicy } from './security/tool-policy.js';
 import { PermissionManager } from './security/permission-manager.js';
+import { HistoryPruner } from './brain/history-pruner.js';
 import { registerSystemTools } from './tools/built-in/system-tools.js';
 import { registerHttpTools } from './tools/built-in/http-tools.js';
 import { registerMemoryTools } from './tools/built-in/memory-tools.js';
@@ -90,7 +92,22 @@ async function main() {
     // Skills are optional
   }
 
-  // Phase 9: Host Dispatcher
+  // Phase 9: History Pruner
+  const historyPruner = new HistoryPruner(config);
+
+  // Phase 10: Command Router
+  const commandRouter = new CommandRouter({
+    sessionManager,
+    conversationMemory,
+    llmProvider,
+    toolExecutor,
+    promptBuilder,
+    config,
+    eventBus,
+    logger,
+  });
+
+  // Phase 11: Host Dispatcher
   const dispatcher = new HostDispatcher({
     sessionManager,
     toolPolicy,
@@ -98,12 +115,13 @@ async function main() {
     memorySearch,
     skillLoader,
     permissionManager,
+    historyPruner,
     eventBus,
     logger,
     config,
   });
 
-  // Phase 10: Wire event bus — inbound message processing
+  // Phase 12: Wire event bus — inbound message processing
   eventBus.on('message:inbound', async (message) => {
     const start = Date.now();
 
@@ -146,6 +164,19 @@ async function main() {
       logger.warn({ userId: message.userId, patterns: injection.patterns }, 'Potential prompt injection detected');
     }
 
+    // Host commands (e.g. /new) — handled before the LLM pipeline
+    try {
+      const cmd = await commandRouter.handle(sanitized);
+      if (cmd.handled && !cmd.forwardContent) return;
+      if (cmd.handled && cmd.forwardContent) {
+        sanitized.content = cmd.forwardContent;
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, 'Command router error');
+      // Don't let command text leak to the LLM on router failure
+      if (sanitized.content.trim().startsWith('/')) return;
+    }
+
     // Build request, enqueue, and finalize
     try {
       const request = dispatcher.buildRequest(sanitized);
@@ -169,7 +200,7 @@ async function main() {
     }
   });
 
-  // Phase 11: Adapters
+  // Phase 13: Adapters
   const adapterRegistry = new AdapterRegistry(eventBus);
 
   // Telegram adapter (loaded dynamically if token present)
@@ -186,7 +217,7 @@ async function main() {
   // Console adapter (always available)
   adapterRegistry.register(new ConsoleAdapter(eventBus, config));
 
-  // Phase 12: Heartbeat (loaded dynamically if configured)
+  // Phase 14: Heartbeat (loaded dynamically if configured)
   try {
     const { HeartbeatScheduler } = await import('./heartbeat/heartbeat-scheduler.js');
     const heartbeat = new HeartbeatScheduler(runner, toolRegistry, sessionManager, db, config, logger);
