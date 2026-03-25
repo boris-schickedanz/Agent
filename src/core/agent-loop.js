@@ -31,7 +31,7 @@ export class AgentLoop {
   }
 
   async processMessage(normalizedMessage) {
-    const { channelId, userId, userName, content } = normalizedMessage;
+    const { sessionId: routeSessionId, channelId, userId, userName, content } = normalizedMessage;
 
     // 1. Resolve canonical sessionId and get or create session
     const sessionId = this.sessions.resolveSessionId(normalizedMessage);
@@ -157,18 +157,20 @@ export class AgentLoop {
       newMessages.push({ role: 'assistant', content: finalText });
     }
 
-    // 8. Persist new messages
-    this.sessions.appendMessages(sessionId, newMessages);
-
-    // 9. Apply outbound guardrails
+    // 8. Apply outbound guardrails to the final assistant text before persistence
     if (this.permissionManager) {
       const guardrail = this.permissionManager.checkModelGuardrails(finalText);
       finalText = guardrail.content;
     }
 
+    this._upsertFinalAssistantMessage(newMessages, finalText);
+
+    // 9. Persist new messages
+    this.sessions.appendMessages(sessionId, newMessages);
+
     // 10. Emit outbound message
     const outbound = {
-      sessionId,
+      sessionId: routeSessionId || sessionId,
       channelId,
       userId,
       content: finalText,
@@ -183,5 +185,19 @@ export class AgentLoop {
     this.eventBus.emit('message:outbound', outbound);
 
     return outbound;
+  }
+
+  _upsertFinalAssistantMessage(messages, finalText) {
+    if (!finalText) return;
+
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index];
+      if (message.role === 'assistant' && typeof message.content === 'string') {
+        messages[index] = { ...message, content: finalText };
+        return;
+      }
+    }
+
+    messages.push({ role: 'assistant', content: finalText });
   }
 }

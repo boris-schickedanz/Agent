@@ -120,7 +120,8 @@ async function main() {
 
     // Enqueue
     try {
-      const result = await messageQueue.enqueue(sanitized.sessionId, sanitized);
+      const canonicalSessionId = sessionManager.resolveSessionId(sanitized);
+      const result = await messageQueue.enqueue(canonicalSessionId, sanitized);
       if (result) {
         result.metadata.processingTimeMs = Date.now() - start;
       }
