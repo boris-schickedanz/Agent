@@ -1,6 +1,6 @@
 # Spec 02 — Brain (LLM Layer)
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25 (context management layers added)
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
 
 ## 1. Purpose
 
@@ -69,6 +69,24 @@ estimateTokens(messages: Message[]): number
 
 **Token estimation:** Overrides base with `text.length / 3.5` (Anthropic-specific ratio).
 
+### 2.2b Ollama Provider
+
+**File:** `src/brain/ollama-provider.js`
+**Class:** `OllamaProvider extends LLMProvider`
+
+Alternative LLM backend for local models. Loaded dynamically when `config.llmProvider === 'ollama'`.
+
+**Configuration:**
+- Uses `config.ollamaHost` for API endpoint (default: `http://localhost:11434`)
+- Uses `config.ollamaModel` for model selection (default: `llama3.1`)
+
+**Retry behavior:**
+- Max retries: 3
+- Retryable status codes: `429` (rate limit), `500` (server error), `503` (service unavailable)
+- Backoff: exponential — `2^attempt * 1000ms` (2s, 4s, 8s)
+
+Note: Ollama uses `503` instead of Anthropic's `529` since it follows standard HTTP semantics.
+
 ### 2.3 Prompt Builder
 
 **File:** `src/brain/prompt-builder.js`
@@ -87,13 +105,14 @@ async build(
 ): Promise<string>
 ```
 
+Note: `availableTools` is accepted for interface consistency but not currently used in assembly. Tool schemas are passed directly to the LLM API call, not embedded in the system prompt.
+
 **Assembly order (each section separated by newline):**
 
-1. **Agent personality** — contents of `SOUL.md` (cached after first read, falls back to a default string if file missing)
-2. **Current context** — date/time (ISO), session ID, user name, channel ID
+1. **Agent personality** — contents of `SOUL.md` (cached after first read, falls back to a default string if file missing). If the session has an active agent profile with a custom `soul`, that is used instead.
+2. **Current context** — date/time (ISO), user name, channel, and (if active) agent profile name
 3. **Relevant memories** — pre-searched by the host (`HostDispatcher`) and passed as `memorySnippets`. Each snippet is truncated to 300 chars by the host before inclusion.
-4. **Tool count** — brief note about available tool count
-5. **Skill instructions** — optional, injected when a skill is active
+4. **Skill instructions** — optional, injected when a skill is active
 
 **Caching:** `SOUL.md` is read once and cached for the process lifetime. To reload, restart the agent.
 

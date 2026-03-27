@@ -1,6 +1,6 @@
 # Spec 03 — Tool System
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
 
 ## 1. Purpose
 
@@ -99,14 +99,25 @@ async execute(
 }
 ```
 
+**Constructor:**
+
+```js
+constructor(registry: ToolRegistry, toolPolicy: ToolPolicy, logger: Logger, options?: {
+  auditLogger?: AuditLogger,
+  approvalManager?: ApprovalManager
+})
+```
+
 **Execution flow:**
 
 1. **Lookup** — `toolRegistry.get(toolName)`. If not found → `{ success: false, error: 'Unknown tool' }`.
 2. **Permission check** — `toolPolicy.isAllowed(toolName, session.userId, session)`. If denied → `{ success: false, error: 'Permission denied' }`.
+2b. **Approval check** — if `approvalManager` is present and `approvalManager.needsApproval(toolName, session)` returns true, the executor returns `{ awaitingApproval: true }` with a formatted approval prompt. The pending request is stored via `approvalManager.setPending()`. See [Spec 19](19-approval-workflow.md).
 3. **Input validation** — `validateInput(toolInput, tool.inputSchema)`. If invalid → `{ success: false, error: 'Invalid input: ...' }`.
 4. **Execution** — `Promise.race([handler(input, context), timeoutPromise])`.
 5. **Result coercion** — if handler returns non-string, `JSON.stringify` it.
-6. **Logging** — log tool name and duration on success; log error on failure.
+6. **Audit logging** — if `auditLogger` is present, log tool name, input, output, duration, and success status.
+7. **Logging** — log tool name and duration on success; log error on failure.
 
 ### 2.4 Tool Schema Validation
 
@@ -162,6 +173,50 @@ Unsupported types fall back to `z.any()`.
 | `search_memory` | `brokered` | FTS5 search across memories | `{ query: string, limit?: number (1-20, default 5) }` | `memory:read` |
 | `list_memories` | `brokered` | List all memory keys | (none) | `memory:read` |
 
+### 3.4 File System Tools
+
+**File:** `src/tools/built-in/fs-tools.js`
+**Registration:** `registerFsTools(registry, sandbox)`
+
+All file system tools use the Sandbox for path resolution and access control. See [Spec 17](17-workspace-tools.md) for full details.
+
+| Tool | Class | Description | Approval Required |
+|------|-------|-------------|-------------------|
+| `read_file` | `brokered` | Read file contents with line numbers | No |
+| `write_file` | `brokered` | Create or overwrite a file (atomic write) | Yes |
+| `edit_file` | `brokered` | Search-and-replace edit (unique match required) | Yes |
+| `list_directory` | `brokered` | Recursive listing up to depth 3 | No |
+| `file_search` | `brokered` | Glob pattern file search | No |
+| `grep_search` | `brokered` | Regex content search across files | No |
+
+### 3.5 Shell Tools
+
+**File:** `src/tools/built-in/shell-tools.js`
+**Registration:** `registerShellTools(registry, processManager, sandbox)`
+
+Shell tools use the ProcessManager for execution and the Sandbox for working directory resolution. See [Spec 18](18-shell-execution.md) for full details.
+
+| Tool | Class | Description | Approval Required |
+|------|-------|-------------|-------------------|
+| `run_command` | `brokered` | Execute a shell command (120s timeout) | Yes |
+| `run_command_background` | `brokered` | Spawn a background process | Yes |
+| `check_process` | `brokered` | Check status and tail output of a process | No |
+| `kill_process` | `brokered` | Terminate a background process | Yes |
+| `list_processes` | `brokered` | List all active background processes | No |
+
+### 3.6 Delegation Tools
+
+**File:** `src/tools/built-in/delegation-tools.js`
+**Registration:** `registerDelegationTools(registry, delegationManager)`
+
+Delegation tools allow the agent to spawn sub-agents (Claude Code, Codex, or custom). See [Spec 21](21-agent-delegation.md) for full details.
+
+| Tool | Class | Description | Approval Required |
+|------|-------|-------------|-------------------|
+| `delegate_task` | `brokered` | Spawn a sub-agent to handle a task | Yes |
+| `check_delegation` | `brokered` | Check status of a delegated task | No |
+| `cancel_delegation` | `brokered` | Cancel a running delegation | Yes |
+
 ## 4. Adding a New Built-in Tool
 
 1. Create `src/tools/built-in/<name>-tools.js` exporting a `register<Name>Tools(registry, ...deps)` function.
@@ -204,6 +259,20 @@ Each tool is assigned a `class` that determines its trust boundary relative to t
 | `save_memory` | `memory-tools.js` | `brokered` | File system write, database write |
 | `search_memory` | `memory-tools.js` | `brokered` | Database read |
 | `list_memories` | `memory-tools.js` | `brokered` | File system read |
+| `read_file` | `fs-tools.js` | `brokered` | File system read |
+| `write_file` | `fs-tools.js` | `brokered` | File system write |
+| `edit_file` | `fs-tools.js` | `brokered` | File system write |
+| `list_directory` | `fs-tools.js` | `brokered` | File system read |
+| `file_search` | `fs-tools.js` | `brokered` | File system read |
+| `grep_search` | `fs-tools.js` | `brokered` | File system read |
+| `run_command` | `shell-tools.js` | `brokered` | Shell execution, file system mutation |
+| `run_command_background` | `shell-tools.js` | `brokered` | Shell execution, persistent process |
+| `check_process` | `shell-tools.js` | `brokered` | None (read-only) |
+| `kill_process` | `shell-tools.js` | `brokered` | Process termination |
+| `list_processes` | `shell-tools.js` | `brokered` | None (read-only) |
+| `delegate_task` | `delegation-tools.js` | `brokered` | Spawns sub-agent process |
+| `check_delegation` | `delegation-tools.js` | `brokered` | None (read-only) |
+| `cancel_delegation` | `delegation-tools.js` | `brokered` | Process termination |
 | `skill_{name}` | (dynamic) | `runtime` | None |
 
 ### 5.4 Registry Behavior

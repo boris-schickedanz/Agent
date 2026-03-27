@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 export class PromptBuilder {
-  constructor(config, _memorySearch) {
+  constructor(config) {
     this.config = config;
     this.soulPath = resolve('SOUL.md');
     this._soulCache = null;

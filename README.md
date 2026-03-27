@@ -133,7 +133,7 @@ All configuration is via environment variables (or `.env` file). Run `agentcore 
 └──────────────────────────────────┘
 ```
 
-See [`spec/`](spec/README.md) for complete specifications.
+See [`spec/`](spec/README.md) for complete specifications and [`spec/PRD-Use-Cases.md`](spec/PRD-Use-Cases.md) for the full use case inventory.
 
 ## Project Structure
 

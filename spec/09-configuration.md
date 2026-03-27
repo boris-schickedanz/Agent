@@ -1,6 +1,6 @@
 # Spec 09 — Configuration
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
 
 ## 1. Purpose
 
@@ -20,12 +20,17 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 
 | Variable | Config Key | Type | Required | Default | Description |
 |----------|-----------|------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | `anthropicApiKey` | string | Yes | `''` | Anthropic API key for Claude |
+| `ANTHROPIC_API_KEY` | `anthropicApiKey` | string | Yes* | `''` | Anthropic API key for Claude. Required when `LLM_PROVIDER=anthropic`. |
+| `ANTHROPIC_AUTH_TOKEN` | `anthropicAuthToken` | string | No | `''` | Alternative Anthropic auth token (e.g., for OAuth flows). |
 | `TELEGRAM_BOT_TOKEN` | `telegramBotToken` | string | No | `''` | Telegram Bot API token. Telegram adapter only starts if this is set. |
 | `AGENT_NAME` | `agentName` | string | No | `'AgentCore'` | Display name in prompts and logs |
 | `DATA_DIR` | `dataDir` | string | No | `'./data'` | Directory for SQLite DB and memory files. Resolved to absolute path. |
 | `LOG_LEVEL` | `logLevel` | string | No | `'info'` | Pino log level: `trace`, `debug`, `info`, `warn`, `error`, `fatal` |
-| `MODEL` | `model` | string | No | `'claude-sonnet-4-20250514'` | Anthropic model ID |
+| `LLM_PROVIDER` | `llmProvider` | string | No | `'anthropic'` | LLM backend: `anthropic` or `ollama` |
+| `MODEL` | `model` | string | No | `'claude-sonnet-4-20250514'` | Anthropic model ID (used when provider is `anthropic`) |
+| `OLLAMA_HOST` | `ollamaHost` | string | No | `'http://localhost:11434'` | Ollama API endpoint |
+| `OLLAMA_MODEL` | `ollamaModel` | string | No | `'llama3.1'` | Ollama model name |
+| `CONSOLE_USER_ID` | `consoleUserId` | string | No | `'console-user'` | User ID for console adapter sessions |
 | `MAX_TOOL_ITERATIONS` | `maxToolIterations` | number | No | `25` | Maximum ReAct loop iterations per message |
 | `HEARTBEAT_INTERVAL_MINUTES` | `heartbeatIntervalMs` | number | No | `30` | Minutes between heartbeat ticks. Stored as milliseconds internally. `0` disables heartbeat. |
 | `RATE_LIMIT_MESSAGES_PER_MINUTE` | `rateLimitPerMinute` | number | No | `20` | Max messages per user per minute |
@@ -36,7 +41,7 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `PRUNE_THRESHOLD` | `pruneThreshold` | number | No | `4000` | Chars above which tool results are pruned in-memory |
 | `PRUNE_HEAD` | `pruneHead` | number | No | `1500` | Chars to keep from start of pruned tool result |
 | `PRUNE_TAIL` | `pruneTail` | number | No | `1500` | Chars to keep from end of pruned tool result |
-| `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean | No | `false` | If `true`, new users get `user` role. If `false`, they get `pending` (restricted). |
+| `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean/string[] | No | `false` | `true`: all new users get `user` role. `false`: they get `pending`. CSV list: only listed userIds are auto-approved. |
 | `MASTER_KEY` | `masterKey` | string | No | `''` | Encryption key for the API key store. Falls back to `ANTHROPIC_API_KEY` if empty. |
 | | | | | | |
 | **Workspace & Security** (Spec 16) | | | | | |
@@ -46,19 +51,28 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | | | | | | |
 | **Shell Execution** (Spec 18) | | | | | |
 | `SHELL_CONTAINER` | `shellContainer` | boolean | No | `false` | Execute shell commands inside a container instead of directly on host. |
-| `SHELL_CONTAINER_RUNTIME` | `shellContainerRuntime` | string | No | auto | Container CLI: `container` (Apple), `podman`, or `docker`. Auto-detects if unset. |
+| `SHELL_CONTAINER_RUNTIME` | `shellContainerRuntime` | string | No | `'auto'` | Container CLI: `container` (Apple), `podman`, or `docker`. Auto-detects if unset. |
 | `SHELL_CONTAINER_IMAGE` | `shellContainerImage` | string | No | `'agentcore-sandbox'` | Image name for the sandbox container. |
+| `MAX_BACKGROUND_PROCESSES` | `maxBackgroundProcesses` | number | No | `10` | Maximum concurrent background shell processes. |
+| `DEFAULT_SHELL_TIMEOUT_SECONDS` | `defaultShellTimeoutMs` | number | No | `60` | Default timeout for shell commands in seconds. Stored as milliseconds internally. |
 | | | | | | |
 | **Health & Daemon** (Spec 20) | | | | | |
 | `HEALTH_PORT` | `healthPort` | number | No | `9090` | Health endpoint port. Set to `0` to disable. |
 | `HEALTH_BIND` | `healthBind` | string | No | `'127.0.0.1'` | Bind address for health endpoint (localhost only by default). |
+| | | | | | |
+| **Delegation & Dashboard** (Specs 21, 22) | | | | | |
+| `MAX_DELEGATIONS` | `maxDelegations` | number | No | `10` | Maximum total concurrent delegations across all sessions. |
+| `MAX_DELEGATIONS_PER_SESSION` | `maxDelegationsPerSession` | number | No | `3` | Maximum concurrent delegations per session. |
+| `DASHBOARD_ENABLED` | `dashboardEnabled` | boolean | No | `false` | Enable the web dashboard (extends health endpoint with REST API + SPA). |
 
 ## 4. Type Coercion
 
 - Integer variables are parsed with `parseInt(value, 10)`.
-- Boolean variables use strict comparison: `value === 'true'`.
-- `DATA_DIR` is resolved to an absolute path via `path.resolve()`.
+- Boolean variables use strict comparison: `value === 'true'` for opt-in, `value !== 'false'` for opt-out (e.g., `COMPACTION_MEMORY_FLUSH` defaults to `true`).
+- `DATA_DIR` and `WORKSPACE_DIR` are resolved to absolute paths via `path.resolve()`.
 - `HEARTBEAT_INTERVAL_MINUTES` is converted to milliseconds: `value * 60_000`.
+- `DEFAULT_SHELL_TIMEOUT_SECONDS` is converted to milliseconds: `value * 1000`.
+- `AUTO_APPROVE_USERS`: `'true'` → boolean `true`, `'false'`/empty → boolean `false`, any other value → split on `,` to produce a string array of approved user IDs.
 
 ## 5. .env.example
 

@@ -72,7 +72,7 @@ Full-text search across persistent memory using SQLite FTS5.
 
 ```js
 search(query: string, limit?: number): SearchResult[]    // Default limit: 5
-reindex(persistentMemory: PersistentMemory): void
+async reindex(persistentMemory: PersistentMemory): Promise<void>
 ```
 
 **SearchResult shape:**

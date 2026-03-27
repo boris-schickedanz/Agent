@@ -47,11 +47,11 @@ export class MemorySearch {
     }
   }
 
-  reindex(persistentMemory) {
+  async reindex(persistentMemory) {
     this.db.exec('DELETE FROM memory_fts');
-    const keys = persistentMemory.list();
+    const keys = await persistentMemory.list();
     for (const key of keys) {
-      const content = persistentMemory.load(key);
+      const content = await persistentMemory.load(key);
       if (content) {
         this.db.prepare(
           'INSERT INTO memory_fts (key, content, metadata) VALUES (?, ?, ?)'

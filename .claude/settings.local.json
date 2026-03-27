@@ -50,7 +50,10 @@
       "Bash(ls -la /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/test/*.test.js)",
       "Read(//c/Users/ue07073/\"OneDrive - SBB\"/Dokumente/Agent/test/**)",
       "Bash(cd /c/Users/ue07073/\"OneDrive - SBB\"/Dokumente/Agent)",
-      "Bash(wc -l test/*.test.js)"
+      "Bash(wc -l test/*.test.js)",
+      "Bash(grep -n \"permissions:\" c:/Users/ue07073/OneDrive - SBB/Dokumente/Agent/src/tools/built-in/*.js)",
+      "Bash(timeout 60 node --test --test-timeout=10000 test/agent-loop-refactor.test.js test/context-management.test.js test/host-dispatcher.test.js test/pipeline-e2e.test.js)",
+      "Bash(timeout 60 node --test --test-timeout=10000 test/approval.test.js test/approval-flow.test.js test/tool-policy.test.js test/sandbox.test.js test/fs-tools.test.js test/shell-tools.test.js test/delegation.test.js test/scheduler.test.js)"
     ]
   }
 }

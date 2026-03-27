@@ -14,6 +14,8 @@ All features and changes follow this sequence:
 
 Specs in `spec/` are the single source of truth. Code should match specs; when they diverge, update the spec or fix the code — never leave them inconsistent.
 
+The **Use Cases PRD** ([`spec/PRD-Use-Cases.md`](spec/PRD-Use-Cases.md)) is the canonical inventory of all user-facing capabilities, organized by persona and category. When adding a feature, add its use case to the PRD. When writing tests, use the PRD to identify missing E2E coverage.
+
 ## Commands
 
 ```bash

@@ -1,6 +1,6 @@
 # Spec 01 — Runtime Core
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
 
 ## 1. Purpose
 
@@ -21,6 +21,7 @@ A lightweight in-process pub/sub system that decouples adapters from the agent l
 |-------|---------|------------|-------------|
 | `message:inbound` | `NormalizedMessage` | Adapters | `src/index.js` (security pipeline) |
 | `message:outbound` | `OutboundMessage` | HostDispatcher | AdapterRegistry |
+| `stream:event` | `StreamEvent` | Inbound handler (via `onStreamEvent` callback) | AdapterRegistry → Adapter.handleStreamEvent() |
 | `error` | `Error` | Any component | Global error handler |
 
 **Constraints:**
@@ -38,7 +39,7 @@ Ensures execution requests within a single session are processed serially (no in
 
 ```js
 constructor(runner: AgentRunner, logger: Logger)
-enqueue(sessionId: string, executionRequest: ExecutionRequest): Promise<ExecutionResult>
+enqueue(sessionId: string, executionRequest: ExecutionRequest, onStreamEvent?: Function): Promise<ExecutionResult>
 getQueueDepth(sessionId: string): number
 shutdown(): void
 ```
@@ -50,29 +51,36 @@ shutdown(): void
 - When a request finishes processing, the next queued request for that session (if any) begins.
 - `shutdown()` sets a flag that causes subsequent `enqueue` calls to return `null`.
 - Each `enqueue` returns a Promise that resolves with the runner's `ExecutionResult`.
+- The optional `onStreamEvent` callback is forwarded to the runner for real-time streaming support.
 
 ### 2.3 Session Manager
 
 **File:** `src/core/session-manager.js`
 **Class:** `SessionManager`
 
-Manages session lifecycle. A session represents one conversation context, keyed by `channelId:userId`.
+Manages session lifecycle. Sessions are keyed by a canonical ID that supports cross-adapter continuity and group chat isolation.
 
 **Interface:**
 
 ```js
-getSessionKey(userId: string, channelId: string): string
-getOrCreate(userId: string, channelId: string, userName?: string): Session
+resolveCanonicalUserId(adapterUserId: string, channelId: string): string
+resolveSessionId(normalizedMessage: NormalizedMessage): string
+getOrCreate(sessionId: string, userId: string, channelId: string, userName?: string): Session
 loadHistory(sessionId: string, limit?: number): Message[]
 appendMessage(sessionId: string, role: string, content: any): void
 appendMessages(sessionId: string, messages: Message[]): void
 ```
 
+**Session ID resolution:**
+
+- **Individual chats:** `user:{canonicalUserId}` where `canonicalUserId` is resolved via the `user_aliases` table, falling back to `{channelId}:{adapterUserId}`. Example: `user:telegram:12345`.
+- **Group chats:** `group:{adapter}:{chatId}`. Detected when the adapter's sessionId contains `:group:`. Example: `group:telegram:67890`.
+
 **Session object shape:**
 
 ```js
 {
-  id: string,            // "channelId:userId"
+  id: string,            // Canonical session ID (see above)
   userId: string,
   channelId: string,
   userName: string|null,
@@ -82,6 +90,8 @@ appendMessages(sessionId: string, messages: Message[]): void
 ```
 
 **Behavior:**
+- `resolveCanonicalUserId` checks the `user_aliases` table for cross-adapter identity mapping. Falls back to `channelId:adapterUserId`.
+- `resolveSessionId` routes group messages to group-scoped sessions and individual messages to user-scoped sessions.
 - Sessions are cached in-memory (`Map`) and persisted to the `sessions` SQLite table.
 - `getOrCreate` does an `INSERT ... ON CONFLICT ... DO UPDATE` to upsert the session row.
 - `loadHistory` and `appendMessages` delegate to `ConversationMemory`.
@@ -107,8 +117,11 @@ async processMessage({
   sessionMetadata: object,
   maxIterations: number,
   cancellationSignal: { cancelled: boolean },
+  onStreamEvent?: (event: StreamEvent) => void,
 }): Promise<AgentLoopResult>
 ```
+
+**Streaming:** When `onStreamEvent` is provided and the LLM provider supports streaming (`llm.supportsStreaming`), the loop calls `llm.streamMessage()` instead of `llm.createMessage()`. Stream events (`stream:start`, `stream:delta`, `stream:status`, `stream:end`) are forwarded to the callback, which ultimately emits them on the EventBus for adapter consumption.
 
 **Processing steps:**
 
@@ -188,22 +201,29 @@ Defined in `src/index.js`. Components are instantiated in strict dependency orde
 1. Logger (pino)
 2. Database (SQLite singleton + migrations)
 3. EventBus
-4. LLM Provider (AnthropicProvider)
+4. LLM Provider (Anthropic or Ollama, based on `config.llmProvider`)
 5. Context Compactor
 6. Memory subsystems (ConversationMemory, PersistentMemory, MemorySearch)
-7. Tool Registry + built-in tool registration
-8. Security layer (InputSanitizer, RateLimiter, ToolPolicy, PermissionManager)
-9. Prompt Builder, History Pruner
+7. Tool Registry + built-in tool registration (system, HTTP, memory tools)
+7b. Sandbox + AuditLogger (workspace path sandboxing, tool execution logging)
+7c. File system tools registration (read, write, edit, list, search, grep)
+7d. ProcessManager + shell tools registration (run_command, background processes, etc.)
+7e. DelegationManager + delegation tools registration (delegate_task, check, cancel)
+8. Security layer (InputSanitizer, RateLimiter, ApprovalManager, ToolPolicy, PermissionManager)
+9. Prompt Builder
+9b. History Pruner
+9c. Agent Registry (optional, loads profiles from `agents/`)
 10. Session Manager, Tool Executor, AgentLoop (runtime core)
 11. LocalRunner (wraps AgentLoop)
 12. MessageQueue (accepts runner)
 13. Skill Loader (optional, loaded before dispatcher)
-14. Command Router (handles `/new` and other host commands before LLM pipeline)
+14. Command Router (handles `/new`, `/approve`, `/reject`, `/agent`, etc.)
 15. Host Dispatcher (owns session/tool/memory/skill resolution, pruning, and finalization)
-16. Event bus wiring (`message:inbound` handler with security pipeline + command routing)
-17. Adapter Registry + adapter registration (Telegram if configured, Console always)
-18. Heartbeat Scheduler (optional, uses runner)
-19. `adapterRegistry.startAll()`
+16. Event bus wiring (`message:inbound` handler with security pipeline + command routing + streaming)
+17. Adapter Registry + adapter registration (Telegram if configured, Console if TTY)
+18. Health/Dashboard server (optional, if `healthPort > 0`)
+19. Task Scheduler (optional, falls back to legacy HeartbeatScheduler)
+20. `adapterRegistry.startAll()`
 
 **Inbound message pipeline (wired on EventBus):**
 
@@ -212,9 +232,11 @@ message:inbound
   → rateLimiter.consume(userId)              — reject if rate limited
   → permissionManager.checkAccess(userId, channelId)  — reject if blocked
   → inputSanitizer.sanitize(message)         — strip dangerous content
-  → commandRouter.handle(sanitized)          — intercept /new etc. (see Spec 15)
+  → inputSanitizer.detectInjection(content)  — soft check, log only
+  → commandRouter.handle(sanitized)          — intercept /new, /approve, /reject, /agent etc.
   → dispatcher.buildRequest(sanitized)       — resolve session, tools, memory, skills, prune history
-  → messageQueue.enqueue(sessionId, request) — per-session serialization → runner.execute()
+  → onStreamEvent callback created           — bridges AgentLoop streaming to EventBus
+  → messageQueue.enqueue(sessionId, request, onStreamEvent) — per-session serialization → runner.execute()
   → dispatcher.finalize(request, result)     — guardrails, persistence, delivery
 ```
 
@@ -223,10 +245,12 @@ message:inbound
 Triggered by `SIGINT` or `SIGTERM`:
 
 1. `messageQueue.shutdown()` — stop accepting new requests
-2. `runner.shutdown()` — wait for in-flight executions, then force-cancel remaining
-3. `adapterRegistry.stopAll()` — stop all adapters
-4. `db.close()` — close SQLite connection
-5. `process.exit(0)`
+2. `scheduler.stop()` — stop task scheduler (if running)
+3. `runner.shutdown()` — wait for in-flight executions, then force-cancel remaining
+4. `processManager.shutdownAll()` — terminate all background processes
+5. `adapterRegistry.stopAll()` — stop all adapters
+6. `db.close()` — close SQLite connection
+7. `process.exit(0)`
 
 ## 5. Design Decisions
 
@@ -234,7 +258,8 @@ Triggered by `SIGINT` or `SIGTERM`:
 |----------|-----------|
 | EventBus over direct calls | Decouples adapters from core. Adding a new adapter requires zero changes to the agent loop. |
 | Per-session serial queue | Prevents race conditions from rapid messages by the same user. Different users are not blocked. |
-| Session key = `channelId:userId` | Allows the same user to have separate conversations on different channels. |
+| Session key = `user:{canonical}` / `group:{adapter}:{chat}` | Supports cross-adapter identity via user_aliases, isolates group chats per channel. |
+| Console adapter conditional on TTY | Prevents readline EOF crashes under daemon/launchd/nohup. |
 | Max iterations cap | Safety valve against infinite tool loops. Default 25 is generous for complex multi-step tasks. |
 | Dynamic imports for optional modules | Telegram, skills, and heartbeat only load if configured/available. Keeps startup fast. |
 

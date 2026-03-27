@@ -114,7 +114,7 @@ async function main() {
   const permissionManager = new PermissionManager(db, toolPolicy, config);
 
   // Phase 6: Prompt Builder
-  const promptBuilder = new PromptBuilder(config, memorySearch);
+  const promptBuilder = new PromptBuilder(config);
 
   // Phase 7: Core — AgentLoop (runtime) + LocalRunner + HostDispatcher
   const sessionManager = new SessionManager(db, conversationMemory);
@@ -288,11 +288,12 @@ async function main() {
   }
 
   // Phase 14: Health endpoint / Dashboard
+  let dashboardServer = null;
   if (config.healthPort > 0) {
     try {
       if (config.dashboardEnabled) {
         const { DashboardServer } = await import('./web/server.js');
-        const dashboardServer = new DashboardServer({
+        dashboardServer = new DashboardServer({
           port: config.healthPort,
           bind: config.healthBind,
           messageQueue,
@@ -349,6 +350,11 @@ async function main() {
     } catch {
       // Scheduling is optional
     }
+  }
+
+  // Wire scheduler into dashboard (if both exist)
+  if (dashboardServer && scheduler) {
+    dashboardServer.scheduler = scheduler;
   }
 
   // Start all adapters

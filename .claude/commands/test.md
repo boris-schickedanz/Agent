@@ -41,3 +41,20 @@ Spec or plan to write tests for: $ARGUMENTS
 - For database tests, use setup/teardown to ensure clean state.
 - Mock external services (LLM providers, APIs) but prefer real implementations for internal components.
 - Include the spec reference in a comment at the top of the test file.
+
+## E2E User Flow Tests
+
+Beyond unit and integration tests, every user-facing use case in [`spec/PRD-Use-Cases.md`](../../spec/PRD-Use-Cases.md) should have an **end-to-end test** that verifies the full pipeline from inbound message to outbound response.
+
+**E2E test principles:**
+- Wire real components together (no mocks for internal components — only mock the LLM provider and external APIs).
+- Test from `message:inbound` event through to `message:outbound` emission.
+- Group tests by use case category from the PRD (security flows, agent profiles, Telegram-specific, etc.).
+- File pattern: `test/e2e-*.test.js` (e.g., `test/e2e-user-flows.test.js`).
+- Reference `test/pipeline-e2e.test.js` and `test/approval-flow.test.js` for existing E2E patterns.
+
+**When writing tests for a new feature:**
+1. Check the PRD for the relevant use case(s)
+2. Write unit tests for the new component
+3. Write E2E tests for the user-facing flow
+4. Update the PRD's "E2E Tested" column
