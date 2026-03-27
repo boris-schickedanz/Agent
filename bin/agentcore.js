@@ -15,6 +15,12 @@ async function main() {
       return handleStop();
     case 'status':
       return handleStatus();
+    case 'build':
+      return handleBuild();
+    case 'install':
+      return handleInstall();
+    case 'uninstall':
+      return handleUninstall();
     case 'onboard':
       return handleOnboard();
     case 'config':
@@ -40,10 +46,14 @@ AgentCore CLI
 Usage: agentcore <command> [options]
 
 Commands:
-  start              Start the agent (foreground)
-  start --daemon     Start via PM2 (background)
-  stop               Stop PM2 process
+  start              Start the agent (foreground, in container by default)
+  start --daemon     Start as detached container (background)
+  start --no-container  Start directly without container
+  stop               Stop the daemon (container or PM2)
   status             Show agent status (queries health endpoint)
+  install            Install launchd service (boot persistence + auto-restart)
+  uninstall          Remove launchd service
+  build              Build/rebuild the container image
   onboard            Interactive setup wizard
   config list        Show current config
   config set K V     Set an env var in .env
@@ -51,35 +61,234 @@ Commands:
   skill install URL  Install a skill from URL
   skill remove NAME  Remove an installed skill
   agent list         List agent profiles
-  logs               Tail agent logs
+  logs               Show agent logs (add -f to follow)
   help               Show this help message
 `);
 }
 
 async function handleStart() {
+  // Daemon mode — detached container
   if (args.includes('--daemon')) {
-    const { execSync } = await import('child_process');
-    try {
-      execSync('pm2 start ecosystem.config.cjs', { stdio: 'inherit' });
-      console.log('\nAgent started in daemon mode.');
-      console.log('Run "agentcore logs" to view logs.');
-      console.log('Run "pm2 startup" to enable boot persistence.');
-    } catch (err) {
-      console.error('Failed to start daemon. Is PM2 installed? (npm install -g pm2)');
+    const { ContainerLauncher } = await import('../src/container/container-launcher.js');
+    const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+
+    if (!launcher.isAvailable()) {
+      console.error('Apple container CLI not found. Install it to use daemon mode.');
       process.exit(1);
     }
-  } else {
-    // Foreground mode — just run index.js
+
+    launcher.ensureSystemRunning();
+    launcher.stopStaleContainers();
+
+    if (!launcher.imageExists()) {
+      console.log('Building container image (first run)...');
+      try {
+        launcher.build();
+      } catch (err) {
+        console.error(`Failed to build container image: ${err.message}`);
+        process.exit(1);
+      }
+    }
+
+    const healthPort = parseInt(process.env.HEALTH_PORT || '9090', 10);
+    try {
+      launcher.launchDetached({ healthPort });
+      console.log('Agent started in daemon mode.');
+      console.log('Run "agentcore logs" to view logs.');
+      console.log('Run "agentcore stop" to stop.');
+    } catch (err) {
+      console.error(`Failed to start daemon: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Already inside a container — run directly
+  if (process.env.AGENTCORE_IN_CONTAINER === '1') {
     await import('../src/index.js');
+    return;
+  }
+
+  // Explicit skip
+  if (args.includes('--no-container')) {
+    await import('../src/index.js');
+    return;
+  }
+
+  // Check container mode config
+  const containerMode = process.env.CONTAINER_MODE || 'auto';
+  if (containerMode === 'false') {
+    await import('../src/index.js');
+    return;
+  }
+
+  // Try container launch
+  const { ContainerLauncher } = await import('../src/container/container-launcher.js');
+  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+
+  if (!launcher.isAvailable()) {
+    if (containerMode === 'true') {
+      console.error('Apple container CLI not found. Install it or set CONTAINER_MODE=false.');
+      process.exit(1);
+    }
+    // auto mode — silent fallback to direct execution
+    await import('../src/index.js');
+    return;
+  }
+
+  launcher.ensureSystemRunning();
+  launcher.stopStaleContainers();
+
+  // Auto-build image on first run
+  if (!launcher.imageExists()) {
+    console.log('Building container image (first run)...');
+    try {
+      launcher.build();
+    } catch (err) {
+      console.error(`Failed to build container image: ${err.message}`);
+      if (containerMode === 'true') {
+        process.exit(1);
+      }
+      console.log('Falling back to direct execution.');
+      await import('../src/index.js');
+      return;
+    }
+  }
+
+  // Launch in container, forward signals
+  const healthPort = parseInt(process.env.HEALTH_PORT || '9090', 10);
+  const child = launcher.launch({ healthPort });
+
+  process.on('SIGINT', () => child.kill('SIGINT'));
+  process.on('SIGTERM', () => child.kill('SIGTERM'));
+
+  child.on('error', (err) => {
+    console.error(`Container error: ${err.message}`);
+    process.exit(1);
+  });
+
+  child.on('exit', (code) => {
+    process.exit(code ?? 1);
+  });
+}
+
+async function handleInstall() {
+  const { ContainerLauncher } = await import('../src/container/container-launcher.js');
+  const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
+
+  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+
+  if (!launcher.isAvailable()) {
+    console.error('Apple container CLI not found. Install it before setting up the launchd service.');
+    process.exit(1);
+  }
+
+  launcher.ensureSystemRunning();
+
+  // Auto-build image if needed
+  if (!launcher.imageExists()) {
+    console.log('Building container image (first run)...');
+    try {
+      launcher.build();
+    } catch (err) {
+      console.error(`Failed to build container image: ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  if (installer.isInstalled()) {
+    console.error(`Already installed at: ${installer.plistPath()}`);
+    console.error('Run "agentcore uninstall" first to reinstall.');
+    process.exit(1);
+  }
+
+  try {
+    installer.install();
+    console.log(`Installed launchd service: ${installer.plistPath()}`);
+    console.log('Agent will start automatically on login and restart on crash.');
+    console.log('Run "agentcore logs -f" to follow logs.');
+    console.log('Run "agentcore uninstall" to remove.');
+  } catch (err) {
+    console.error(`Install failed: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function handleUninstall() {
+  const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
+  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+
+  if (!installer.isInstalled()) {
+    console.error('Not installed.');
+    process.exit(1);
+  }
+
+  try {
+    installer.uninstall();
+    console.log('launchd service removed. Agent will no longer start on login.');
+  } catch (err) {
+    console.error(`Uninstall failed: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function handleBuild() {
+  const { ContainerLauncher } = await import('../src/container/container-launcher.js');
+  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+
+  if (!launcher.isAvailable()) {
+    console.error('Apple container CLI not found.');
+    process.exit(1);
+  }
+
+  try {
+    launcher.build();
+    console.log('Container image built successfully.');
+  } catch (err) {
+    console.error(`Build failed: ${err.message}`);
+    process.exit(1);
   }
 }
 
 async function handleStop() {
+  const { ContainerLauncher } = await import('../src/container/container-launcher.js');
+  const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
+  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+
+  // If launchd-managed: stop via launchctl (launchd will restart unless we unload)
+  if (installer.isInstalled()) {
+    const { execSync } = await import('child_process');
+    try {
+      execSync(`launchctl stop com.boris.agentcore`, { stdio: 'inherit' });
+      console.log('Agent stopped. (launchd will restart it — run "agentcore uninstall" to disable.)');
+    } catch (err) {
+      console.error(`Failed to stop: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Detached container daemon
+  if (launcher.isAvailable() && launcher.isDaemonRunning()) {
+    try {
+      launcher.stopDaemon();
+      console.log('Agent stopped.');
+    } catch (err) {
+      console.error(`Failed to stop container: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Fallback: try PM2 for legacy deployments
   const { execSync } = await import('child_process');
   try {
     execSync('pm2 stop agentcore', { stdio: 'inherit' });
   } catch {
-    console.error('Failed to stop. Is the agent running via PM2?');
+    console.error('No running agent found (checked launchd, container daemon, and PM2).');
+    process.exit(1);
   }
 }
 
@@ -214,11 +423,42 @@ async function handleAgent() {
 }
 
 async function handleLogs() {
+  const { ContainerLauncher } = await import('../src/container/container-launcher.js');
+  const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
+  const { spawn } = await import('child_process');
+  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+  const follow = args.includes('-f') || args.includes('--follow');
+
+  // launchd-managed: tail the log files
+  if (installer.isInstalled()) {
+    const logFile = resolve('.', 'logs', 'out.log');
+    const tailArgs = follow ? ['-f', logFile] : ['-n', '50', logFile];
+    const child = spawn('tail', tailArgs, { stdio: 'inherit' });
+    child.on('error', (err) => {
+      console.error(`Failed to read logs: ${err.message}`);
+      process.exit(1);
+    });
+    return;
+  }
+
+  // Detached container daemon
+  if (launcher.isAvailable() && launcher.isDaemonRunning()) {
+    const child = launcher.tailLogs({ lines: 50, follow });
+    child.on('error', (err) => {
+      console.error(`Failed to read logs: ${err.message}`);
+      process.exit(1);
+    });
+    return;
+  }
+
+  // Fallback: PM2
   const { execSync } = await import('child_process');
   try {
     execSync('pm2 logs agentcore --lines 50', { stdio: 'inherit' });
   } catch {
-    console.error('Failed to read logs. Is PM2 running?');
+    console.error('No running agent found (checked launchd, container daemon, and PM2).');
+    process.exit(1);
   }
 }
 

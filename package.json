@@ -10,7 +10,7 @@
     "agentcore": "./bin/agentcore.js"
   },
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node bin/agentcore.js start",
     "dev": "node --watch src/index.js",
     "test": "node --test test/**/*.test.js"
   },

@@ -47,6 +47,9 @@ export const config = Object.freeze({
   healthPort: parseInt(process.env.HEALTH_PORT || '9090', 10),
   healthBind: process.env.HEALTH_BIND || '127.0.0.1',
 
+  // Container runtime
+  containerMode: process.env.CONTAINER_MODE || 'auto',
+
   // Phase 3: Delegation & Dashboard
   maxDelegations: parseInt(process.env.MAX_DELEGATIONS || '10', 10),
   maxDelegationsPerSession: parseInt(process.env.MAX_DELEGATIONS_PER_SESSION || '3', 10),
