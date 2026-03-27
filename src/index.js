@@ -281,8 +281,11 @@ async function main() {
     }
   }
 
-  // Console adapter (always available)
-  adapterRegistry.register(new ConsoleAdapter(eventBus, config));
+  // Console adapter (only when running interactively — skip when stdin is not a TTY
+  // to avoid readline EOF causing process.exit(0) under launchd/nohup)
+  if (process.stdin.isTTY) {
+    adapterRegistry.register(new ConsoleAdapter(eventBus, config));
+  }
 
   // Phase 14: Health endpoint / Dashboard
   if (config.healthPort > 0) {
