@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
 import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+
+// Always resolve project root relative to this script, regardless of CWD
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -70,7 +74,7 @@ async function handleStart() {
   // Daemon mode — detached container
   if (args.includes('--daemon')) {
     const { ContainerLauncher } = await import('../src/container/container-launcher.js');
-    const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+    const launcher = new ContainerLauncher({ projectRoot: PROJECT_ROOT });
 
     if (!launcher.isAvailable()) {
       console.error('Apple container CLI not found. Install it to use daemon mode.');
@@ -124,7 +128,7 @@ async function handleStart() {
 
   // Try container launch
   const { ContainerLauncher } = await import('../src/container/container-launcher.js');
-  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+  const launcher = new ContainerLauncher({ projectRoot: PROJECT_ROOT });
 
   if (!launcher.isAvailable()) {
     if (containerMode === 'true') {
@@ -176,8 +180,8 @@ async function handleInstall() {
   const { ContainerLauncher } = await import('../src/container/container-launcher.js');
   const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
 
-  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
-  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+  const launcher = new ContainerLauncher({ projectRoot: PROJECT_ROOT });
+  const installer = new LaunchdInstaller({ projectRoot: PROJECT_ROOT });
 
   if (!launcher.isAvailable()) {
     console.error('Apple container CLI not found. Install it before setting up the launchd service.');
@@ -217,7 +221,7 @@ async function handleInstall() {
 
 async function handleUninstall() {
   const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
-  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+  const installer = new LaunchdInstaller({ projectRoot: PROJECT_ROOT });
 
   if (!installer.isInstalled()) {
     console.error('Not installed.');
@@ -235,7 +239,7 @@ async function handleUninstall() {
 
 async function handleBuild() {
   const { ContainerLauncher } = await import('../src/container/container-launcher.js');
-  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
+  const launcher = new ContainerLauncher({ projectRoot: PROJECT_ROOT });
 
   if (!launcher.isAvailable()) {
     console.error('Apple container CLI not found.');
@@ -254,8 +258,8 @@ async function handleBuild() {
 async function handleStop() {
   const { ContainerLauncher } = await import('../src/container/container-launcher.js');
   const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
-  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
-  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+  const launcher = new ContainerLauncher({ projectRoot: PROJECT_ROOT });
+  const installer = new LaunchdInstaller({ projectRoot: PROJECT_ROOT });
 
   // If launchd-managed: stop via launchctl (launchd will restart unless we unload)
   if (installer.isInstalled()) {
@@ -338,7 +342,7 @@ async function handleConfig() {
     }
 
     const { readFileSync, writeFileSync } = await import('fs');
-    const envPath = resolve('.env');
+    const envPath = resolve(PROJECT_ROOT, '.env');
     let content = '';
     try { content = readFileSync(envPath, 'utf-8'); } catch { /* new file */ }
 
@@ -369,7 +373,7 @@ async function handleConfig() {
 
 async function handleSkill() {
   const { SkillInstaller } = await import('../src/skills/skill-installer.js');
-  const installer = new SkillInstaller({ skillsDir: resolve('skills'), logger: console });
+  const installer = new SkillInstaller({ skillsDir: resolve(PROJECT_ROOT, 'skills'), logger: console });
 
   switch (subcommand) {
     case 'install': {
@@ -409,7 +413,7 @@ async function handleSkill() {
 
 async function handleAgent() {
   const { AgentRegistry } = await import('../src/agents/agent-registry.js');
-  const registry = new AgentRegistry({ agentsDir: resolve('agents'), logger: console });
+  const registry = new AgentRegistry({ agentsDir: resolve(PROJECT_ROOT, 'agents'), logger: console });
   registry.loadAll();
 
   const agents = registry.list();
@@ -426,13 +430,13 @@ async function handleLogs() {
   const { ContainerLauncher } = await import('../src/container/container-launcher.js');
   const { LaunchdInstaller } = await import('../src/container/launchd-installer.js');
   const { spawn } = await import('child_process');
-  const launcher = new ContainerLauncher({ projectRoot: resolve('.') });
-  const installer = new LaunchdInstaller({ projectRoot: resolve('.') });
+  const launcher = new ContainerLauncher({ projectRoot: PROJECT_ROOT });
+  const installer = new LaunchdInstaller({ projectRoot: PROJECT_ROOT });
   const follow = args.includes('-f') || args.includes('--follow');
 
   // launchd-managed: tail the log files
   if (installer.isInstalled()) {
-    const logFile = resolve('.', 'logs', 'out.log');
+    const logFile = resolve(PROJECT_ROOT, 'logs', 'out.log');
     const tailArgs = follow ? ['-f', logFile] : ['-n', '50', logFile];
     const child = spawn('tail', tailArgs, { stdio: 'inherit' });
     child.on('error', (err) => {

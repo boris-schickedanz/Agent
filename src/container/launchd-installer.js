@@ -46,6 +46,8 @@ export class LaunchdInstaller {
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
     <key>StandardOutPath</key>
     <string>${logsDir}/out.log</string>
     <key>StandardErrorPath</key>

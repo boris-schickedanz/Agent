@@ -66,9 +66,31 @@ export class ContainerLauncher {
   }
 
   ensureSystemRunning() {
-    if (!this.isSystemRunning()) {
-      execSync('container system start', { timeout: 30_000, stdio: 'inherit' });
+    const maxAttempts = 12; // ~60 seconds total (12 × 5s)
+    const delayMs = 5_000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (this.isSystemRunning()) return;
+
+      try {
+        execSync('container system start', { timeout: 30_000, stdio: 'ignore' });
+        // Brief pause to let the system daemon settle before re-checking
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
+        if (this.isSystemRunning()) return;
+      } catch {
+        // start failed or timed out — will retry
+      }
+
+      if (attempt < maxAttempts) {
+        this.logger?.warn(
+          { attempt, maxAttempts },
+          `Container system not ready, retrying in ${delayMs / 1000}s…`,
+        );
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+      }
     }
+
+    throw new Error('Container system failed to start after 60 seconds.');
   }
 
   stopStaleContainers() {
