@@ -1,6 +1,6 @@
 # Spec 07 — Security
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
 
 ## 1. Purpose
 
@@ -68,8 +68,9 @@ Role-based tool access control using allow/deny profiles.
 **Interface:**
 
 ```js
+constructor(db, config, approvalManager?)
 isAllowed(toolName: string, userId: string, session: Session): boolean
-getEffectiveToolNames(userId: string, session: Session): string[] | null
+getEffectiveToolNames(userId: string, session: Session): Array<{ name, requiresApproval }> | null
 ```
 
 **Default profiles:**
@@ -77,7 +78,7 @@ getEffectiveToolNames(userId: string, session: Session): string[] | null
 | Profile | Allow | Deny |
 |---------|-------|------|
 | `minimal` | `get_current_time` | `*` (everything else) |
-| `standard` | `get_current_time`, `search_memory`, `list_memories`, `http_get`, `save_memory`, `wait` | `http_post` |
+| `standard` | `get_current_time`, `wait`, `search_memory`, `list_memories`, `http_get`, `read_file`, `list_directory`, `file_search`, `grep_search`, `list_processes`, `check_process`, `check_delegation`, `save_memory`, `http_post`, `write_file`, `edit_file`, `run_command`, `run_command_background`, `kill_process`, `delegate_task`, `cancel_delegation` | (nothing — write tools gated by approval workflow, see Spec 19) |
 | `full` | `*` (everything) | (nothing) |
 
 **Role → Profile mapping:**
@@ -96,8 +97,8 @@ getEffectiveToolNames(userId: string, session: Session): string[] | null
 4. Pattern matching: `*` matches everything; `prefix*` matches tools starting with prefix; exact string matches exactly.
 
 **`getEffectiveToolNames` behavior:**
-- Returns `null` if allow includes `*` (meaning all tools are available — used by AgentLoop to skip filtering).
-- Returns the explicit allow list otherwise.
+- Returns `null` if allow includes `*` (meaning all tools are available — used by HostDispatcher to skip filtering).
+- Returns `Array<{ name, requiresApproval }>` otherwise — each tool annotated with whether it requires approval (cross-referenced with `ApprovalManager.requiresApproval()`).
 
 ### 3.3 Rate Limiter
 

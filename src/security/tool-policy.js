@@ -5,20 +5,16 @@ const DEFAULT_PROFILES = {
   },
   standard: {
     allow: [
-      'get_current_time', 'search_memory', 'list_memories',
-      'http_get', 'save_memory', 'wait',
-      // fs:read tools
-      'read_file', 'list_directory', 'file_search', 'grep_search',
-    ],
-    deny: [
-      'http_post',
-      // fs:write tools
-      'write_file', 'edit_file',
-      // shell:execute tools
+      // read
+      'get_current_time', 'wait', 'search_memory', 'list_memories',
+      'http_get', 'read_file', 'list_directory', 'file_search', 'grep_search',
+      'list_processes', 'check_process', 'check_delegation',
+      // write (gated by approval workflow)
+      'save_memory', 'http_post', 'write_file', 'edit_file',
       'run_command', 'run_command_background', 'kill_process',
-      // agent:delegate tools
-      'delegate_task', 'check_delegation', 'cancel_delegation',
+      'delegate_task', 'cancel_delegation',
     ],
+    deny: [],
   },
   full: {
     allow: ['*'],
@@ -34,9 +30,10 @@ const ROLE_PROFILE_MAP = {
 };
 
 export class ToolPolicy {
-  constructor(db, config) {
+  constructor(db, config, approvalManager = null) {
     this.db = db;
     this.config = config;
+    this.approvalManager = approvalManager;
     this.profiles = { ...DEFAULT_PROFILES };
     this.roleMap = { ...ROLE_PROFILE_MAP };
   }
@@ -84,7 +81,10 @@ export class ToolPolicy {
     // If allow includes '*', return null (meaning all tools)
     if (profile.allow.includes('*')) return null;
 
-    return [...profile.allow];
+    return profile.allow.map(name => ({
+      name,
+      requiresApproval: this.approvalManager?.requiresApproval(name) ?? false,
+    }));
   }
 
   _getUserRole(userId, channelId) {

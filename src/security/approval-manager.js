@@ -1,10 +1,13 @@
-const TOOL_APPROVAL_DEFAULTS = {
-  run_command: 'always',
-  run_command_background: 'always',
-  kill_process: 'once-per-session',
-  write_file: 'once-per-session',
-  edit_file: 'once-per-session',
-};
+export const TOOLS_REQUIRING_APPROVAL = new Set([
+  'run_command',
+  'run_command_background',
+  'kill_process',
+  'write_file',
+  'edit_file',
+  'http_post',
+  'delegate_task',
+  'cancel_delegation',
+]);
 
 export class ApprovalManager {
   constructor({ db, eventBus, auditLogger, logger }) {
@@ -13,8 +16,6 @@ export class ApprovalManager {
     this.auditLogger = auditLogger || null;
     this.logger = logger || null;
 
-    // Session-scoped approval cache: Map<sessionId, Set<toolName>>
-    this._sessionCache = new Map();
     // Pending approvals: Map<sessionId, PendingApproval>
     this._pending = new Map();
   }
@@ -27,38 +28,14 @@ export class ApprovalManager {
     const role = this._getUserRole(userId);
     if (role === 'admin') return false;
 
-    const mode = TOOL_APPROVAL_DEFAULTS[toolName];
-    if (!mode || mode === 'never') return false;
-
-    // Check session cache for once-per-session tools
-    if (mode === 'once-per-session') {
-      const cached = this._sessionCache.get(sessionId);
-      if (cached && cached.has(toolName)) return false;
-    }
-
-    // Check if already approved in cache (for 'always' tools that got session grant)
-    const cached = this._sessionCache.get(sessionId);
-    if (cached && cached.has(toolName)) return false;
-
-    return true;
+    return TOOLS_REQUIRING_APPROVAL.has(toolName);
   }
 
   /**
-   * Grant session-level approval for a tool.
+   * Role-agnostic check: is this tool in the approval-required set?
    */
-  grantSession(toolName, sessionId) {
-    if (!this._sessionCache.has(sessionId)) {
-      this._sessionCache.set(sessionId, new Set());
-    }
-    this._sessionCache.get(sessionId).add(toolName);
-  }
-
-  /**
-   * Revoke session-level approval for a tool.
-   */
-  revokeSession(toolName, sessionId) {
-    const cached = this._sessionCache.get(sessionId);
-    if (cached) cached.delete(toolName);
+  requiresApproval(toolName) {
+    return TOOLS_REQUIRING_APPROVAL.has(toolName);
   }
 
   /**
@@ -76,14 +53,6 @@ export class ApprovalManager {
     if (!pending) return;
 
     this._pending.delete(sessionId);
-
-    if (approved) {
-      // Grant session-level approval based on tool's mode
-      const mode = TOOL_APPROVAL_DEFAULTS[pending.toolName];
-      if (mode === 'once-per-session' || mode === 'always') {
-        this.grantSession(pending.toolName, sessionId);
-      }
-    }
 
     this.auditLogger?.logApproval({
       toolName: pending.toolName,
@@ -103,10 +72,9 @@ export class ApprovalManager {
   }
 
   /**
-   * Clear session cache (e.g., on /new).
+   * Clear pending approvals (e.g., on /new).
    */
   clearSession(sessionId) {
-    this._sessionCache.delete(sessionId);
     this._pending.delete(sessionId);
   }
 

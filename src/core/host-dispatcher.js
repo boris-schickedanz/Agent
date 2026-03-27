@@ -53,8 +53,11 @@ export class HostDispatcher {
       agentProfile = this.agentRegistry.get(session.metadata.agentName);
     }
 
-    const allowedToolNames = this.toolPolicy
-      ? new Set(this.toolPolicy.getEffectiveToolNames(sanitizedMessage.userId, session))
+    const effectiveTools = this.toolPolicy
+      ? this.toolPolicy.getEffectiveToolNames(sanitizedMessage.userId, session)
+      : null;
+    const allowedToolNames = effectiveTools
+      ? new Set(effectiveTools.map(t => t.name))
       : null;
 
     // If agent profile restricts tools, intersect with role-based policy

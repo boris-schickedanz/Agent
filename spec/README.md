@@ -29,10 +29,11 @@ Specs for the coding companion capabilities. All implemented.
 | [16 — Sandbox & Audit Logging](16-sandbox-and-audit.md) | Workspace path sandboxing, audit log table, tool execution logging |
 | [17 — Workspace Tools](17-workspace-tools.md) | File system tools: read, write, edit, list, search, grep |
 | [18 — Shell Execution](18-shell-execution.md) | Shell command execution, process manager, background processes, optional container sandbox |
-| [19 — Approval Workflow](19-approval-workflow.md) | Interactive tool approval prompts, session-scoped caching, /approve and /reject commands |
+| [19 — Approval Workflow](19-approval-workflow.md) | Interactive tool approval prompts, per-invocation approval for write tools, /approve and /reject commands |
 | [20 — Daemon & Health](20-daemon-and-health.md) | PM2 daemon mode, health HTTP endpoint, enhanced task scheduler |
 | [21 — Agent Delegation](21-agent-delegation.md) | Sub-agent delegation (Claude Code, Codex), multi-agent profiles, memory namespace support |
 | [22 — CLI & Platform](22-cli-and-platform.md) | CLI tool, onboarding wizard, skill installer, web dashboard |
+| [23 — Read/Write Tool Policy](23-read-write-tool-policy.md) | Standard profile allows all tools; write tools gated by approval workflow instead of deny list |
 
 ## Archived
 

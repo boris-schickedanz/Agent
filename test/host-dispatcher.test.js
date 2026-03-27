@@ -79,16 +79,27 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(req.history.length, 1);
   });
 
-  it('includes tool schemas filtered by policy', () => {
+  it('includes tool schemas filtered by policy (annotated return)', () => {
+    // Spec 23: getEffectiveToolNames now returns { name, requiresApproval }[]
     const dispatcher = makeDispatcher({
       toolPolicy: {
-        getEffectiveToolNames: () => ['get_current_time'],
+        getEffectiveToolNames: () => [
+          { name: 'get_current_time', requiresApproval: false },
+          { name: 'read_file', requiresApproval: false },
+          { name: 'run_command', requiresApproval: true },
+        ],
       },
       toolRegistry: {
         getSchemas: (filter) => {
           assert.ok(filter instanceof Set);
           assert.ok(filter.has('get_current_time'));
-          return [{ name: 'get_current_time', description: 'Get time', input_schema: {} }];
+          assert.ok(filter.has('read_file'));
+          assert.ok(filter.has('run_command'));
+          return [
+            { name: 'get_current_time', description: 'Get time', input_schema: {} },
+            { name: 'read_file', description: 'Read file', input_schema: {} },
+            { name: 'run_command', description: 'Run command', input_schema: {} },
+          ];
         },
       },
     });
@@ -97,6 +108,60 @@ describe('HostDispatcher.buildRequest', () => {
       userId: 'alice',
       channelId: 'console',
       content: 'What time?',
+    });
+
+    assert.equal(req.toolSchemas.length, 3);
+  });
+
+  it('extracts .name from annotated tool list for Set filtering', () => {
+    // Spec 23: HostDispatcher must extract .name from { name, requiresApproval }[]
+    let receivedFilter = null;
+    const dispatcher = makeDispatcher({
+      toolPolicy: {
+        getEffectiveToolNames: () => [
+          { name: 'write_file', requiresApproval: true },
+          { name: 'list_directory', requiresApproval: false },
+        ],
+      },
+      toolRegistry: {
+        getSchemas: (filter) => {
+          receivedFilter = filter;
+          return [];
+        },
+      },
+    });
+
+    dispatcher.buildRequest({
+      userId: 'alice',
+      channelId: 'console',
+      content: 'test',
+    });
+
+    assert.ok(receivedFilter instanceof Set);
+    assert.ok(receivedFilter.has('write_file'));
+    assert.ok(receivedFilter.has('list_directory'));
+    // Should not contain the object itself
+    assert.equal(receivedFilter.size, 2);
+  });
+
+  it('handles null from getEffectiveToolNames (admin/full profile)', () => {
+    // Spec 23: null means all tools — no filtering
+    const dispatcher = makeDispatcher({
+      toolPolicy: {
+        getEffectiveToolNames: () => null,
+      },
+      toolRegistry: {
+        getSchemas: (filter) => {
+          assert.equal(filter, null);
+          return [{ name: 'get_current_time', description: 'Get time', input_schema: {} }];
+        },
+      },
+    });
+
+    const req = dispatcher.buildRequest({
+      userId: 'admin',
+      channelId: 'console',
+      content: 'do anything',
     });
 
     assert.equal(req.toolSchemas.length, 1);

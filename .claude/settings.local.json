@@ -33,7 +33,18 @@
       "Bash(node --input-type=module -e \":*)",
       "WebSearch",
       "WebFetch(domain:docs.openclaw.ai)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Read(//c/Users/ue07073/OneDrive/**)",
+      "Bash(grep -E \"\\\\.js$\")",
+      "Bash(xargs grep:*)",
+      "Bash(find '/c/Users/ue07073/OneDrive - SBB/Dokumente/Agent' -name constants.js -o -name *const* -o -name toolnames.js)",
+      "Bash(grep -l \"write_tools\\\\|writeTools\\\\|WRITE_TOOLS\\\\|delegate_task\" \"/c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/test\"/*.test.js)",
+      "Bash(/tmp/analysis.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(ls test/**/*.test.js)",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //PID 21340)",
+      "Bash(taskkill //F //PID 21212)"
     ]
   }
 }

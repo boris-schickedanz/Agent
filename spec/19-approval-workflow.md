@@ -1,6 +1,6 @@
 # Spec 19 — Approval Workflow
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
 
 ## 1. Purpose
 
@@ -13,11 +13,10 @@ When a tool requiring approval is invoked, the agent pauses, asks the user for p
 ```
 AgentLoop calls tool → ToolExecutor checks approval
   → If admin: proceed (bypass)
-  → If cached: proceed
   → If needed: return [APPROVAL_REQUIRED] message to LLM
      → LLM relays to user
      → User responds /approve or /reject
-     → Next agent iteration: tool now cached, executes normally
+     → Next agent iteration: tool executes if approved
 ```
 
 ## 3. Components
@@ -33,8 +32,7 @@ AgentLoop calls tool → ToolExecutor checks approval
 constructor({ db, eventBus, auditLogger, logger })
 
 needsApproval(toolName, userId, sessionId): boolean
-grantSession(toolName, sessionId): void
-revokeSession(toolName, sessionId): void
+requiresApproval(toolName): boolean          // role-agnostic, checks TOOLS_REQUIRING_APPROVAL
 getPending(sessionId): PendingApproval | null
 setPending(sessionId, { toolName, input, userId }): void
 resolve(sessionId, approved, reason?): void
@@ -43,16 +41,19 @@ clearSession(sessionId): void
 
 ### 3.2 Approval Defaults
 
-Approval mode per tool is defined in `TOOL_APPROVAL_DEFAULTS` (hardcoded in `approval-manager.js`):
+Tools requiring approval are defined in the exported `TOOLS_REQUIRING_APPROVAL` set (`approval-manager.js`):
 
-| Tool | Default approval for non-admin |
+| Tool | Requires approval (non-admin) |
 |------|-------------------------------|
-| `run_command` | `always` |
-| `run_command_background` | `always` |
-| `kill_process` | `once-per-session` |
-| `write_file` | `once-per-session` |
-| `edit_file` | `once-per-session` |
-| All other tools | no approval needed |
+| `run_command` | yes |
+| `run_command_background` | yes |
+| `kill_process` | yes |
+| `write_file` | yes |
+| `edit_file` | yes |
+| `http_post` | yes |
+| `delegate_task` | yes |
+| `cancel_delegation` | yes |
+| All other tools | no |
 
 Admin users (`role: 'admin'`) bypass approval entirely (checked via DB query in `_getUserRole()`).
 
@@ -62,7 +63,7 @@ Admin users (`role: 'admin'`) bypass approval entirely (checked via DB query in 
 
 `ToolExecutor.execute()` checks `approvalManager.needsApproval(toolName, userId, sessionId)` (step 2.5, between permission check and input validation).
 
-If approval is needed and not cached, returns:
+If approval is needed, returns:
 
 ```js
 {
@@ -76,20 +77,16 @@ If approval is needed and not cached, returns:
 **Step 2: User response**
 
 `CommandRouter` intercepts `/approve`, `/yes`, `/reject`, `/no`:
-- `/approve` or `/yes` → `approvalManager.resolve(sessionId, true)` → grants session cache → responds "Approved. Continuing..."
+- `/approve` or `/yes` → `approvalManager.resolve(sessionId, true)` → responds "Approved. Continuing..."
 - `/reject` or `/no` → `approvalManager.resolve(sessionId, false, 'User rejected')` → responds "Rejected. Operation cancelled."
 
 **Step 3: Agent resumes**
 
-On next message, the agent re-attempts the tool. `needsApproval()` returns false (session-cached), and the tool executes normally.
+On next message, the agent re-attempts the tool. Every write tool invocation requires individual approval — there is no session caching. The user must explicitly approve each execution.
 
-### 3.4 Session Approval Cache
+### 3.4 Session State
 
-**Storage:** In-memory `Map<sessionId, Set<toolName>>`.
-
-- `grantSession()` adds to cache.
-- On `/new` command, `CommandRouter` calls `approvalManager.clearSession(sessionId)`.
-- Cache is not persisted across agent restarts (conservative).
+No session approval cache. `clearSession(sessionId)` only clears pending approvals (called by `CommandRouter` on `/new`).
 
 ## 4. Integration
 
@@ -114,7 +111,7 @@ const toolExecutor = new ToolExecutor(toolRegistry, toolPolicy, logger, {
 |----------|-----------|
 | Approval as tool result (not event/interrupt) | Works within existing ReAct loop without new control flow. The LLM naturally communicates the pending approval to the user. |
 | `success: true` with `awaitingApproval` flag | The LLM sees the approval message as a tool result, not an error. This ensures it communicates the prompt to the user. |
-| Session-scoped cache (not persistent) | Conservative default. Users must re-approve after restart. |
+| No session caching — every invocation requires approval | Simpler model, stronger safety. Each execution is independently approved. |
 | `/approve` and `/reject` commands | Simple, discoverable. Works across all adapters. Also accepts `/yes` and `/no`. |
 | Admin bypasses approval | Admin role already implies full trust. |
 | Approval info logged to audit | Creates accountability trail for who approved what and when. |

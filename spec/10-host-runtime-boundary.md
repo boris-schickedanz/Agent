@@ -240,7 +240,7 @@ new HostDispatcher({
 1. `sessionManager.resolveSessionId(message)` + `getOrCreate()`
 2. `sessionManager.loadHistory(sessionId)`
 3. `historyPruner.prune(history)` — trim oversized tool results in-memory
-4. `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas(allowedTools)`
+4. `toolPolicy.getEffectiveToolNames()` → extract `.name` from annotated list → `toolRegistry.getSchemas(allowedToolNames)`
 5. Skill trigger matching (iterate `skillLoader.getLoadedSkills()`)
 6. `memorySearch.search(content, 5)` — truncate each to 300 chars, catch errors silently
 7. Return `createExecutionRequest({ ... })`

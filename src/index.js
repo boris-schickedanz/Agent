@@ -109,9 +109,9 @@ async function main() {
   // Phase 5: Security
   const inputSanitizer = new InputSanitizer();
   const rateLimiter = new RateLimiter(db, config);
-  const toolPolicy = new ToolPolicy(db, config);
-  const permissionManager = new PermissionManager(db, toolPolicy, config);
   const approvalManager = new ApprovalManager({ db, eventBus, auditLogger, logger });
+  const toolPolicy = new ToolPolicy(db, config, approvalManager);
+  const permissionManager = new PermissionManager(db, toolPolicy, config);
 
   // Phase 6: Prompt Builder
   const promptBuilder = new PromptBuilder(config, memorySearch);
