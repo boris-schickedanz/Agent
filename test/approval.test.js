@@ -196,4 +196,52 @@ describe('ApprovalManager', () => {
       assert.equal(typeof am.revokeSession, 'undefined');
     });
   });
+
+  // --- grantApproval / consumeGrant ---
+
+  describe('grantApproval', () => {
+    it('bypasses needsApproval for the granted tool', () => {
+      assert.equal(am.needsApproval('write_file', 'user1', 'session1'), true);
+      am.grantApproval('session1', 'write_file');
+      assert.equal(am.needsApproval('write_file', 'user1', 'session1'), false);
+    });
+
+    it('grant is consumed on first use (one-time)', () => {
+      am.grantApproval('session1', 'run_command');
+      assert.equal(am.needsApproval('run_command', 'user1', 'session1'), false);
+      // Second call should require approval again
+      assert.equal(am.needsApproval('run_command', 'user1', 'session1'), true);
+    });
+
+    it('grant only matches the specified tool', () => {
+      am.grantApproval('session1', 'write_file');
+      // Different tool should still require approval
+      assert.equal(am.needsApproval('run_command', 'user1', 'session1'), true);
+      // Granted tool passes
+      assert.equal(am.needsApproval('write_file', 'user1', 'session1'), false);
+    });
+
+    it('grant is scoped to the session', () => {
+      am.grantApproval('session1', 'write_file');
+      assert.equal(am.needsApproval('write_file', 'user1', 'session2'), true);
+      assert.equal(am.needsApproval('write_file', 'user1', 'session1'), false);
+    });
+
+    it('grant expires after 5 minutes', () => {
+      am.grantApproval('session1', 'write_file');
+      // Simulate expiry by backdating the grant
+      am._grants.get('session1').grantedAt = Date.now() - 6 * 60 * 1000;
+      assert.equal(am.needsApproval('write_file', 'user1', 'session1'), true);
+    });
+
+    it('clearSession clears grants', () => {
+      am.grantApproval('session1', 'write_file');
+      am.clearSession('session1');
+      assert.equal(am.needsApproval('write_file', 'user1', 'session1'), true);
+    });
+
+    it('admin still bypasses even without grant', () => {
+      assert.equal(am.needsApproval('write_file', 'admin1', 'session1'), false);
+    });
+  });
 });

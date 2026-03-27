@@ -44,7 +44,13 @@
       "Bash(ls test/**/*.test.js)",
       "Bash(tasklist)",
       "Bash(taskkill //F //PID 21340)",
-      "Bash(taskkill //F //PID 21212)"
+      "Bash(taskkill //F //PID 21212)",
+      "Bash(grep -B20 \"approval.*continue\\\\|continue.*approval\\\\|resume.*approval\\\\|retry.*tool\" src/**/*.js)",
+      "Bash(find /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent -type f -name *.test.js -o -name *.spec.js)",
+      "Bash(ls -la /c/Users/ue07073/OneDrive - SBB/Dokumente/Agent/test/*.test.js)",
+      "Read(//c/Users/ue07073/\"OneDrive - SBB\"/Dokumente/Agent/test/**)",
+      "Bash(cd /c/Users/ue07073/\"OneDrive - SBB\"/Dokumente/Agent)",
+      "Bash(wc -l test/*.test.js)"
     ]
   }
 }

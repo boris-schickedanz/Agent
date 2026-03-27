@@ -211,6 +211,8 @@ describe('CommandRouter', () => {
         config: overrides.config || { compactionMemoryFlush: false },
         eventBus,
         logger: { info: () => {}, warn: () => {}, error: () => {} },
+        approvalManager: overrides.approvalManager || null,
+        agentRegistry: overrides.agentRegistry || null,
       }),
       emitted,
     };
@@ -274,6 +276,142 @@ describe('CommandRouter', () => {
 
     await router.handle({ content: '/new', userId: 'alice', channelId: 'console' });
     assert.equal(llmCalled, false);
+  });
+
+  // --- /approve and /reject ---
+
+  it('handles /approve with pending approval', async () => {
+    const approvalManager = {
+      getPending: () => ({ toolName: 'write_file', input: { path: 'test.txt' }, userId: 'alice' }),
+      resolve: () => {},
+      grantApproval: () => {},
+    };
+    const { router, emitted } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/approve', userId: 'alice', channelId: 'console' });
+
+    assert.equal(result.handled, true);
+    assert.ok(result.forwardContent);
+    assert.ok(result.forwardContent.includes('write_file'));
+    assert.equal(emitted.length, 1);
+    assert.ok(emitted[0].content.includes('Approved'));
+  });
+
+  it('handles /approve with no pending approval', async () => {
+    const approvalManager = {
+      getPending: () => null,
+    };
+    const { router, emitted } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/approve', userId: 'alice', channelId: 'console' });
+
+    assert.equal(result.handled, true);
+    assert.equal(result.forwardContent, undefined);
+    assert.equal(emitted.length, 1);
+    assert.ok(emitted[0].content.includes('No pending'));
+  });
+
+  it('handles /approve without approval system', async () => {
+    const { router, emitted } = makeRouter(); // no approvalManager
+    const result = await router.handle({ content: '/approve', userId: 'alice', channelId: 'console' });
+
+    assert.equal(result.handled, true);
+    assert.equal(emitted.length, 1);
+    assert.ok(emitted[0].content.includes('not enabled'));
+  });
+
+  it('handles /reject with pending approval', async () => {
+    let resolvedWith = null;
+    const approvalManager = {
+      getPending: () => ({ toolName: 'run_command', input: {}, userId: 'alice' }),
+      resolve: (_sid, approved, reason) => { resolvedWith = { approved, reason }; },
+    };
+    const { router, emitted } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/reject', userId: 'alice', channelId: 'console' });
+
+    assert.equal(result.handled, true);
+    assert.equal(result.forwardContent, undefined); // no forwarding on reject
+    assert.equal(resolvedWith.approved, false);
+    assert.equal(emitted.length, 1);
+    assert.ok(emitted[0].content.includes('Rejected'));
+  });
+
+  it('handles /yes as alias for /approve', async () => {
+    const approvalManager = {
+      getPending: () => ({ toolName: 'edit_file', input: {}, userId: 'alice' }),
+      resolve: () => {},
+      grantApproval: () => {},
+    };
+    const { router } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/yes', userId: 'alice', channelId: 'console' });
+    assert.equal(result.handled, true);
+    assert.ok(result.forwardContent);
+  });
+
+  it('handles /no as alias for /reject', async () => {
+    const approvalManager = {
+      getPending: () => ({ toolName: 'run_command', input: {}, userId: 'alice' }),
+      resolve: () => {},
+    };
+    const { router } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/no', userId: 'alice', channelId: 'console' });
+    assert.equal(result.handled, true);
+    assert.equal(result.forwardContent, undefined);
+  });
+
+  it('handles /approve@BotName (Telegram format)', async () => {
+    const approvalManager = {
+      getPending: () => ({ toolName: 'write_file', input: {}, userId: 'alice' }),
+      resolve: () => {},
+      grantApproval: () => {},
+    };
+    const { router } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/approve@AgentCoreBot', userId: 'alice', channelId: 'telegram' });
+    assert.equal(result.handled, true);
+    assert.ok(result.forwardContent);
+  });
+
+  it('handles /reject@BotName (Telegram format)', async () => {
+    const approvalManager = {
+      getPending: () => ({ toolName: 'run_command', input: {}, userId: 'alice' }),
+      resolve: () => {},
+    };
+    const { router } = makeRouter({ approvalManager });
+    const result = await router.handle({ content: '/reject@AgentCoreBot', userId: 'alice', channelId: 'telegram' });
+    assert.equal(result.handled, true);
+    assert.equal(result.forwardContent, undefined);
+  });
+
+  it('handles /new@BotName (Telegram format)', async () => {
+    const { router } = makeRouter();
+    const result = await router.handle({ content: '/new@AgentCoreBot', userId: 'alice', channelId: 'telegram' });
+    assert.equal(result.handled, true);
+  });
+
+  it('handles /agent@BotName coder (Telegram format)', async () => {
+    const agentRegistry = {
+      get: (name) => name === 'coder' ? { name: 'coder', description: 'Coding agent' } : null,
+    };
+    const sessionManager = {
+      resolveSessionId: (msg) => `user:${msg.userId}`,
+      getOrCreate: () => ({ metadata: {} }),
+    };
+    const { router } = makeRouter({ agentRegistry, sessionManager });
+    const result = await router.handle({ content: '/agent@AgentCoreBot coder', userId: 'alice', channelId: 'telegram' });
+    assert.equal(result.handled, true);
+  });
+
+  it('calls grantApproval and resolve on /approve', async () => {
+    let grantedTool = null;
+    let resolved = false;
+    const approvalManager = {
+      getPending: () => ({ toolName: 'run_command', input: { command: 'ls' }, userId: 'alice' }),
+      resolve: () => { resolved = true; },
+      grantApproval: (_sid, toolName) => { grantedTool = toolName; },
+    };
+    const { router } = makeRouter({ approvalManager });
+    await router.handle({ content: '/approve', userId: 'alice', channelId: 'console' });
+
+    assert.equal(resolved, true);
+    assert.equal(grantedTool, 'run_command');
   });
 
   it('only allows save_memory during flush', async () => {

@@ -31,12 +31,13 @@ AgentLoop calls tool → ToolExecutor checks approval
 ```js
 constructor({ db, eventBus, auditLogger, logger })
 
-needsApproval(toolName, userId, sessionId): boolean
+needsApproval(toolName, userId, sessionId): boolean  // checks role, grant, then TOOLS_REQUIRING_APPROVAL
 requiresApproval(toolName): boolean          // role-agnostic, checks TOOLS_REQUIRING_APPROVAL
 getPending(sessionId): PendingApproval | null
 setPending(sessionId, { toolName, input, userId }): void
 resolve(sessionId, approved, reason?): void
-clearSession(sessionId): void
+grantApproval(sessionId, toolName): void     // one-time grant, consumed by needsApproval()
+clearSession(sessionId): void                // clears pending + grants
 ```
 
 ### 3.2 Approval Defaults
@@ -74,19 +75,30 @@ If approval is needed, returns:
 }
 ```
 
+**Step 1b: Pending state stored**
+
+`ToolExecutor` calls `approvalManager.setPending(sessionId, { toolName, input, userId })` so that the pending request is available when the user responds.
+
 **Step 2: User response**
 
-`CommandRouter` intercepts `/approve`, `/yes`, `/reject`, `/no`:
-- `/approve` or `/yes` → `approvalManager.resolve(sessionId, true)` → responds "Approved. Continuing..."
+`CommandRouter` intercepts `/approve`, `/yes`, `/reject`, `/no`. Telegram `@BotName` suffixes (e.g. `/approve@AgentCoreBot`) are stripped before matching.
+
+- `/approve` or `/yes` → `approvalManager.resolve(sessionId, true)` → `approvalManager.grantApproval(sessionId, toolName)` → responds "Approved. Continuing..." → returns `forwardContent` so the message re-enters the pipeline and the agent loop retries the tool.
 - `/reject` or `/no` → `approvalManager.resolve(sessionId, false, 'User rejected')` → responds "Rejected. Operation cancelled."
 
 **Step 3: Agent resumes**
 
-On next message, the agent re-attempts the tool. Every write tool invocation requires individual approval — there is no session caching. The user must explicitly approve each execution.
+The forwarded message (e.g. `[User approved the run_command operation. Continue.]`) enters the pipeline. The agent loop retries the tool. `needsApproval()` finds the temporary grant, consumes it, and returns `false` — the tool executes normally.
 
-### 3.4 Session State
+Every write tool invocation requires individual approval — there is no session caching. The grant is one-time use and expires after 5 minutes.
 
-No session approval cache. `clearSession(sessionId)` only clears pending approvals (called by `CommandRouter` on `/new`).
+### 3.4 Temporary Grants
+
+`grantApproval(sessionId, toolName)` creates a one-time, session+tool-scoped grant consumed by the next `needsApproval()` check. Grants expire after 5 minutes and are cleaned up by `clearSession()`.
+
+### 3.5 Telegram Command Handling
+
+Telegram sends commands with optional `@BotName` suffixes (e.g. `/approve@MyBot`). The `CommandRouter` normalizes commands by stripping the `@mention` suffix before matching, so all commands work identically across console and Telegram adapters.
 
 ## 4. Integration
 
@@ -112,7 +124,8 @@ const toolExecutor = new ToolExecutor(toolRegistry, toolPolicy, logger, {
 | Approval as tool result (not event/interrupt) | Works within existing ReAct loop without new control flow. The LLM naturally communicates the pending approval to the user. |
 | `success: true` with `awaitingApproval` flag | The LLM sees the approval message as a tool result, not an error. This ensures it communicates the prompt to the user. |
 | No session caching — every invocation requires approval | Simpler model, stronger safety. Each execution is independently approved. |
-| `/approve` and `/reject` commands | Simple, discoverable. Works across all adapters. Also accepts `/yes` and `/no`. |
+| `/approve` and `/reject` commands | Simple, discoverable. Works across all adapters. Also accepts `/yes` and `/no`. Telegram `@BotName` suffixes stripped automatically. |
+| One-time grant after `/approve` | Enables seamless tool retry without a second approval prompt, while maintaining per-invocation security. |
 | Admin bypasses approval | Admin role already implies full trust. |
 | Approval info logged to audit | Creates accountability trail for who approved what and when. |
 

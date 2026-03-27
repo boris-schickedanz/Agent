@@ -18,6 +18,9 @@ export class ApprovalManager {
 
     // Pending approvals: Map<sessionId, PendingApproval>
     this._pending = new Map();
+
+    // Temporary approval grants: Map<sessionId, { toolName, grantedAt }>
+    this._grants = new Map();
   }
 
   /**
@@ -28,7 +31,12 @@ export class ApprovalManager {
     const role = this._getUserRole(userId);
     if (role === 'admin') return false;
 
-    return TOOLS_REQUIRING_APPROVAL.has(toolName);
+    if (!TOOLS_REQUIRING_APPROVAL.has(toolName)) return false;
+
+    // Check for a recent approval grant (consumed on use)
+    if (this._consumeGrant(sessionId, toolName)) return false;
+
+    return true;
   }
 
   /**
@@ -72,10 +80,34 @@ export class ApprovalManager {
   }
 
   /**
+   * Grant a temporary approval for a specific tool in a session.
+   * Consumed by the next needsApproval() check for that tool.
+   */
+  grantApproval(sessionId, toolName) {
+    this._grants.set(sessionId, { toolName, grantedAt: Date.now() });
+  }
+
+  /**
    * Clear pending approvals (e.g., on /new).
    */
   clearSession(sessionId) {
     this._pending.delete(sessionId);
+    this._grants.delete(sessionId);
+  }
+
+  _consumeGrant(sessionId, toolName) {
+    const grant = this._grants.get(sessionId);
+    if (!grant) return false;
+    // Expire after 5 minutes
+    if (Date.now() - grant.grantedAt > 5 * 60 * 1000) {
+      this._grants.delete(sessionId);
+      return false;
+    }
+    if (grant.toolName === toolName) {
+      this._grants.delete(sessionId);
+      return true;
+    }
+    return false;
   }
 
   _getUserRole(userId) {

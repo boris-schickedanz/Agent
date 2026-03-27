@@ -30,7 +30,8 @@ export class CommandRouter {
    * @returns {Promise<{ handled: boolean, forwardContent?: string }>}
    */
   async handle(sanitizedMessage) {
-    const content = sanitizedMessage.content.trim();
+    // Strip @BotName suffix from Telegram-style commands (e.g. /approve@MyBot → /approve)
+    const content = sanitizedMessage.content.trim().replace(/^(\/\w+)@\S+/, '$1');
 
     if (content === '/new' || content.startsWith('/new ')) {
       return this._handleNew(sanitizedMessage, content);
@@ -68,12 +69,15 @@ export class CommandRouter {
     this.approvalManager.resolve(sessionId, approved, approved ? null : 'User rejected');
 
     if (approved) {
+      // Grant temporary approval so the retried tool call bypasses the check
+      this.approvalManager.grantApproval(sessionId, pending.toolName);
       this._respond(message, 'Approved. Continuing...');
+      // Forward to pipeline so the agent loop retries the tool
+      return { handled: true, forwardContent: `[User approved the ${pending.toolName} operation. Continue.]` };
     } else {
       this._respond(message, 'Rejected. Operation cancelled.');
+      return { handled: true };
     }
-
-    return { handled: true };
   }
 
   _handleAgent(message, content) {

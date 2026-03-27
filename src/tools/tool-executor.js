@@ -30,14 +30,16 @@ export class ToolExecutor {
 
     // 2.5. Approval check
     if (this.approvalManager) {
-      const needs = this.approvalManager.needsApproval(toolName, session.userId, session.sessionId || session.id);
+      const sessionId = session.sessionId || session.id;
+      const needs = this.approvalManager.needsApproval(toolName, session.userId, sessionId);
       if (needs) {
         const summary = this._summarizeInput(toolName, toolInput);
+        this.approvalManager.setPending(sessionId, { toolName, input: toolInput, userId: session.userId });
         this.auditLogger?.logApproval({
           toolName,
           input: toolInput,
           userId: session.userId,
-          sessionId: session.sessionId || session.id,
+          sessionId,
           approved: false,
           reason: 'pending',
         });
