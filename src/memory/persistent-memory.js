@@ -16,13 +16,14 @@ export class PersistentMemory {
     writeFileSync(filePath, content, 'utf-8');
 
     const nsKey = this.namespace ? `${this.namespace}:${safeName}` : safeName;
+    const enrichedMetadata = { ...metadata, saved_at: new Date().toISOString() };
 
     // Update FTS index
     try {
       this.db.prepare('DELETE FROM memory_fts WHERE key = ?').run(nsKey);
       this.db.prepare(
         'INSERT INTO memory_fts (key, content, metadata) VALUES (?, ?, ?)'
-      ).run(nsKey, content, JSON.stringify(metadata));
+      ).run(nsKey, content, JSON.stringify(enrichedMetadata));
     } catch {
       // FTS update failure is non-fatal
     }

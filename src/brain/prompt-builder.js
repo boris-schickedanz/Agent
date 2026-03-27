@@ -2,9 +2,8 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 export class PromptBuilder {
-  constructor(config, memorySearch) {
+  constructor(config, _memorySearch) {
     this.config = config;
-    this.memorySearch = memorySearch;
     this.soulPath = resolve('SOUL.md');
     this._soulCache = null;
   }
@@ -19,7 +18,13 @@ export class PromptBuilder {
     return this._soulCache;
   }
 
-  async build(session, availableTools, skillInstructions = null) {
+  _humanizeChannel(channelId) {
+    if (!channelId) return 'Unknown';
+    const adapter = channelId.split(':')[0];
+    return adapter.charAt(0).toUpperCase() + adapter.slice(1);
+  }
+
+  async build(session, availableTools, skillInstructions = null, memorySnippets = null) {
     const parts = [];
 
     // 1. Agent personality — use agent profile soul if present, otherwise SOUL.md
@@ -33,38 +38,25 @@ export class PromptBuilder {
     // 2. Current context
     parts.push(`\n## Current Context`);
     parts.push(`- Date/Time: ${new Date().toISOString()}`);
-    parts.push(`- Session: ${session.id}`);
     parts.push(`- User: ${session.userName || session.userId}`);
-    parts.push(`- Channel: ${session.channelId}`);
+    parts.push(`- Channel: ${this._humanizeChannel(session.channelId)}`);
     if (agentProfile?.name) {
       parts.push(`- Agent Profile: ${agentProfile.name}`);
     }
 
-    // 3. Relevant memories
-    if (this.memorySearch && session.lastUserMessage) {
-      try {
-        const memories = this.memorySearch.search(session.lastUserMessage, 5);
-        if (memories.length > 0) {
-          parts.push(`\n## Relevant Memories`);
-          for (const mem of memories) {
-            parts.push(`- **${mem.key}**: ${mem.content.substring(0, 300)}`);
-          }
-        }
-      } catch {
-        // Memory search failure is non-fatal
+    // 3. Relevant memories (use pre-fetched snippets from host; no duplicate search)
+    const snippets = memorySnippets && memorySnippets.length > 0 ? memorySnippets : null;
+    if (snippets) {
+      parts.push(`\n## Relevant Memories`);
+      for (const mem of snippets) {
+        const savedAt = mem.metadata?.saved_at
+          ? ` (saved ${mem.metadata.saved_at.substring(0, 10)})`
+          : '';
+        parts.push(`- **${mem.key}**${savedAt}: ${mem.content.substring(0, 300)}`);
       }
     }
 
-    // 4. Available tools summary
-    if (availableTools.length > 0) {
-      parts.push(`\n## Available Tools`);
-      parts.push(`You have the following tools available. You MUST use them when appropriate instead of saying you cannot do something:\n`);
-      for (const tool of availableTools) {
-        parts.push(`- **${tool.name}**: ${tool.description}`);
-      }
-    }
-
-    // 5. Skill instructions
+    // 4. Skill instructions
     if (skillInstructions) {
       parts.push(`\n## Active Skill Instructions`);
       parts.push(skillInstructions);
