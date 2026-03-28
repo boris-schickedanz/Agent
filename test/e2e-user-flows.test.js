@@ -180,7 +180,7 @@ function buildPipeline(db, config = {}) {
       sanitized.content = cmd.forwardContent;
     }
 
-    const request = dispatcher.buildRequest(sanitized);
+    const request = await dispatcher.buildRequest(sanitized);
     const result = await messageQueue.enqueue(request.sessionId, request);
     if (result) {
       await dispatcher.finalize(request, result, message);

@@ -1,6 +1,6 @@
 # Spec 09 — Configuration
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## 1. Purpose
 
@@ -60,6 +60,11 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | **Health & Daemon** (Spec 20) | | | | | |
 | `HEALTH_PORT` | `healthPort` | number | No | `9090` | Health endpoint port. Set to `0` to disable. |
 | `HEALTH_BIND` | `healthBind` | string | No | `'127.0.0.1'` | Bind address for health endpoint (localhost only by default). |
+| | | | | | |
+| | | | | | |
+| **Workspace State** (Spec 29) | | | | | |
+| `WORKSPACE_STATE_ENABLED` | `workspaceStateEnabled` | boolean | No | `true` | Enable workspace state scanning and prompt injection. Disable to skip state reads entirely. |
+| `WORKSPACE_STATE_MAX_CHARS` | `workspaceStateMaxChars` | number | No | `3000` | Max characters for workspace state injected into system prompt. |
 | | | | | | |
 | **Delegation & Dashboard** (Specs 21, 22) | | | | | |
 | `MAX_DELEGATIONS` | `maxDelegations` | number | No | `10` | Maximum total concurrent delegations across all sessions. |

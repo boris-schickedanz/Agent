@@ -42,6 +42,7 @@ export class AgentLoop {
     userContent,
     toolSchemas,
     memorySnippets,
+    workspaceState,
     skillInstructions,
     sessionMetadata,
     maxIterations,
@@ -65,6 +66,7 @@ export class AgentLoop {
       toolSchemas,
       skillInstructions,
       memorySnippets,
+      workspaceState,
     );
 
     // Prepare messages array

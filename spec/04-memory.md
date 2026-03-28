@@ -1,6 +1,6 @@
 # Spec 04 — Memory System
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## 1. Purpose
 
@@ -89,12 +89,28 @@ async reindex(persistentMemory: PersistentMemory): Promise<void>
 
 **Reindex:** Drops all FTS5 entries and rebuilds from all files in the memory directory. Use for recovery or after manual file edits.
 
+### 2.4 State Bootstrap
+
+**File:** `src/memory/state-bootstrap.js`
+**Class:** `StateBootstrap`
+
+Reads well-known persistent memory keys at request-build time and returns a formatted string for system prompt injection. Provides cross-session continuity by always injecting project state into the prompt, regardless of search relevance. Results are cached with a 60-second TTL to avoid repeated disk reads on the hot path.
+
+**Interface:**
+
+```js
+async scan(): string | null
+```
+
+**Well-known keys:** `project_state`, `decision_journal`, `session_log`. See [Spec 29](29-persistent-workspace-state.md) for conventions and integration details.
+
 ## 3. How Memory Is Used in the Pipeline
 
 1. **Host-side search:** `HostDispatcher.buildRequest()` calls `memorySearch.search(message.content, 5)` to find relevant memories and includes them as `memorySnippets` (truncated to 300 chars each) in the `ExecutionRequest`. This search was previously performed inside `PromptBuilder.build()` but was moved to the host as part of the host/runtime boundary refactor.
-2. **Prompt building:** `PromptBuilder.build()` receives pre-searched `memorySnippets` from the request and includes them in the system prompt.
-3. **Tool use:** The agent can explicitly call `save_memory`, `search_memory`, and `list_memories` tools to manage persistent memory.
-4. **Context compaction:** When conversation history is compacted, the summary replaces older messages in conversation memory via `replaceHistory`.
+2. **Workspace state scan:** `HostDispatcher.buildRequest()` calls `stateBootstrap.scan()` to load well-known state keys (`project_state`, `decision_journal`, `session_log`) and includes the result as `workspaceState` in the `ExecutionRequest`. This provides guaranteed cross-session context injection independent of search relevance. See [Spec 29](29-persistent-workspace-state.md).
+3. **Prompt building:** `PromptBuilder.build()` receives pre-searched `memorySnippets` and pre-scanned `workspaceState` from the request and includes both in the system prompt.
+4. **Tool use:** The agent can explicitly call `save_memory`, `search_memory`, and `list_memories` tools to manage persistent memory.
+5. **Context compaction:** When conversation history is compacted, the summary replaces older messages in conversation memory via `replaceHistory`.
 
 ## 4. FTS5 Configuration
 

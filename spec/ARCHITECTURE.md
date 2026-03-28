@@ -59,7 +59,7 @@ AgentCore is an autonomous LLM agent that receives messages from multiple channe
 ## Core runtime
 
 - **AgentLoop** (`src/core/agent-loop.js`): Pure ReAct loop. Receives pre-loaded data (history, tools, memories), returns structured results. Has no knowledge of sessions, persistence, or adapters. See [spec 01](01-runtime-core.md).
-- **HostDispatcher** (`src/core/host-dispatcher.js`): Orchestrates all host concerns — session resolution, tool policy, memory search, skill matching, persistence, guardrails, and delivery. Two methods: `buildRequest()` and `finalize()`. See [spec 10](10-host-runtime-boundary.md).
+- **HostDispatcher** (`src/core/host-dispatcher.js`): Orchestrates all host concerns — session resolution, tool policy, memory search, workspace state scan, skill matching, persistence, guardrails, and delivery. Two methods: `async buildRequest()` and `finalize()`. See [spec 10](10-host-runtime-boundary.md).
 - **Runner abstraction** (`src/core/runner/agent-runner.js`): Abstract base; `LocalRunner` wraps AgentLoop in-process. Translates between `ExecutionRequest`/`ExecutionResult` and the loop's internal format. Designed for future remote runner implementations.
 - **MessageQueue** (`src/core/message-queue.js`): Per-session serial, cross-session parallel. Ensures one message per session processes at a time.
 - **EventBus** (`src/core/event-bus.js`): In-process pub/sub (`EventEmitter` subclass). Key events: `message:inbound`, `message:outbound`, `stream:event`, `error`.
@@ -70,7 +70,7 @@ AgentCore is an autonomous LLM agent that receives messages from multiple channe
 Components in `src/brain/` handle LLM interaction and context management. See [spec 02](02-brain.md).
 
 - **LLM providers**: Abstract `LLMProvider` base with `AnthropicProvider` and `OllamaProvider` implementations. Support streaming via `streamMessage()`. Configurable via `LLM_PROVIDER` env var.
-- **PromptBuilder** (`src/brain/prompt-builder.js`): Assembles the system prompt from SOUL.md (or agent profile), current context (date, user, channel, active model), relevant memories, and skill instructions. Caches SOUL.md for process lifetime.
+- **PromptBuilder** (`src/brain/prompt-builder.js`): Assembles the system prompt from SOUL.md (or agent profile), current context (date, user, channel, active model), relevant memories, workspace state ([spec 29](29-persistent-workspace-state.md)), and skill instructions. Caches SOUL.md for process lifetime.
 - **ContextCompactor** (`src/brain/context-compactor.js`): Rolling LLM-based summarization when token count exceeds `COMPACTION_THRESHOLD`. Retains recent messages, merges older content into summaries. Falls back to truncation if summarization fails. See [spec 15](15-conversations-context.md).
 - **HistoryPruner** (`src/brain/history-pruner.js`): Trims oversized tool results in-memory (head + tail with ellipsis) before sending to the LLM. Non-destructive — operates on copies.
 - **MemoryFlusher** (`src/brain/memory-flusher.js`): Extracts key facts from conversation into persistent memory before compaction discards them. Also runs before `/new` clears a session.
@@ -82,8 +82,9 @@ Three layers in `src/memory/`. See [spec 04](04-memory.md).
 - **ConversationMemory** (`conversation-memory.js`): Per-session message history stored in SQLite. Methods: `append()`, `getHistory()`, `clearSession()`, `replaceHistory()`.
 - **PersistentMemory** (`persistent-memory.js`): Cross-session key-value facts stored as markdown files in `{DATA_DIR}/memory/`. FTS-indexed on save.
 - **MemorySearch** (`memory-search.js`): FTS5 full-text search across persistent memories. Used by HostDispatcher to inject relevant context into each request.
+- **StateBootstrap** (`state-bootstrap.js`): Reads well-known persistent memory keys (`project_state`, `decision_journal`, `session_log`) at request-build time for guaranteed prompt injection. Cached with 60s TTL. See [spec 29](29-persistent-workspace-state.md).
 
-The agent accesses persistent memory via `save_memory`, `search_memory`, and `list_memories` tools.
+The agent accesses persistent memory via `save_memory`, `search_memory`, and `list_memories` tools. The agent maintains structured project state across sessions using well-known memory keys — see [spec 29](29-persistent-workspace-state.md).
 
 ## Tool system
 
@@ -230,7 +231,8 @@ agent-core/
 │   ├── memory/
 │   │   ├── conversation-memory.js  # SQLite message history
 │   │   ├── persistent-memory.js    # Markdown file memory (namespace support)
-│   │   └── memory-search.js        # FTS5 full-text search (namespace support)
+│   │   ├── memory-search.js        # FTS5 full-text search (namespace support)
+│   │   └── state-bootstrap.js      # Workspace state scan for prompt injection (Spec 29)
 │   ├── adapters/
 │   │   ├── adapter-interface.js    # Abstract contract
 │   │   ├── adapter-registry.js     # Registration and routing

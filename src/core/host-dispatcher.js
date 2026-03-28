@@ -19,6 +19,7 @@ export class HostDispatcher {
     config,
     agentRegistry,
     llmProvider,
+    stateBootstrap,
   }) {
     this.sessionManager = sessionManager;
     this.toolPolicy = toolPolicy;
@@ -32,12 +33,13 @@ export class HostDispatcher {
     this.config = config;
     this.agentRegistry = agentRegistry || null;
     this.llmProvider = llmProvider || null;
+    this.stateBootstrap = stateBootstrap || null;
   }
 
   /**
    * Build an ExecutionRequest from a sanitized inbound message.
    */
-  buildRequest(sanitizedMessage, origin = 'user_message') {
+  async buildRequest(sanitizedMessage, origin = 'user_message') {
     const sessionId = this.sessionManager.resolveSessionId(sanitizedMessage);
     const session = this.sessionManager.getOrCreate(
       sessionId, sanitizedMessage.userId, sanitizedMessage.channelId, sanitizedMessage.userName
@@ -95,6 +97,14 @@ export class HostDispatcher {
       }
     } catch { /* non-critical */ }
 
+    // Workspace state scan (Spec 29)
+    let workspaceState = null;
+    try {
+      if (this.stateBootstrap) {
+        workspaceState = await this.stateBootstrap.scan();
+      }
+    } catch { /* non-critical */ }
+
     return createExecutionRequest({
       origin,
       sessionId,
@@ -115,6 +125,7 @@ export class HostDispatcher {
       allowedToolNames: effectiveToolNames,
       skillInstructions,
       memorySnippets,
+      workspaceState,
       maxIterations: this.config.maxToolIterations,
     });
   }

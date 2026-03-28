@@ -93,7 +93,16 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | K1 | Trigger skill | `/weather London` | Skill instructions injected into system prompt, LLM uses skill tools | SkillLoader, HostDispatcher, PromptBuilder | Partial (pipeline-e2e checks matching) |
 | K2 | Skill not found | `/unknown` | No skill matches → message passed to LLM as-is | HostDispatcher | Implicit |
 
-### 2.9 Security & Permissions
+### 2.9 Workspace State & Continuity
+
+| # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
+|---|----------|---------|-------------------|------------|------------|
+| WS1 | Initialize workspace state | First substantive interaction with no `project_state` memory | Agent sees bootstrapping hint in prompt, creates `project_state` via `save_memory` | StateBootstrap, PromptBuilder, save_memory | Yes (workspace-state-e2e) |
+| WS2 | Resume from prior session | New session when `project_state` exists | System prompt includes workspace state; agent continues without re-asking context | StateBootstrap, HostDispatcher, PromptBuilder | Yes (workspace-state-e2e) |
+| WS3 | Self-audit past decisions | "Why did we choose X?" | Agent searches `decision_journal` via `search_memory`, provides reasoning | MemorySearch, decision_journal convention | No |
+| WS4 | Update project state | Agent completes task or makes decision | Agent calls `save_memory` to update `project_state` and/or append to `decision_journal` | PersistentMemory, save_memory | No |
+
+### 2.10 Security & Permissions
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -106,7 +115,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | P7 | Admin bypasses approval | Admin invokes write tool | Tool executes immediately, no approval prompt | ApprovalManager | Yes (approval-flow) |
 | P8 | Sandbox violation | Agent tries to access file outside workspace | "Path is outside the workspace" error | Sandbox | Yes (sandbox) |
 
-### 2.10 Scheduling
+### 2.11 Scheduling
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -114,7 +123,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | T2 | Overlapping task skipped | Task still running when next tick fires | Skip logged, no duplicate execution | TaskScheduler | Partial (heartbeat-runner) |
 | T3 | Task result delivery | Scheduled task completes | Result should be deliverable to a user/channel | TaskScheduler, Adapter | No (possible feature gap) |
 
-### 2.11 Telegram-Specific
+### 2.12 Telegram-Specific
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -129,14 +138,14 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | TG9 | Inline keyboard callback | User taps inline button | Callback data processed as message | TelegramAdapter, normalizeCallbackQuery | No |
 | TG10 | Markdown parse failure | Response has invalid Markdown | Fallback to plain text | TelegramAdapter._flushEdit | No |
 
-### 2.12 Cross-Adapter
+### 2.13 Cross-Adapter
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
 | X1 | Same user, different adapters | User talks via console then Telegram | Same canonical session if aliases configured | SessionManager, user_aliases | No |
 | X2 | Outbound routing | Response to Telegram user | Message routed to correct adapter by channelId | AdapterRegistry, EventBus | Yes (pipeline-e2e) |
 
-### 2.13 Error Recovery
+### 2.14 Error Recovery
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -159,14 +168,15 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | Agent Profiles | 5 | 0 | 4 | 1 |
 | Model Switching | 3 | 3 | 0 | 0 |
 | Skills | 2 | 0 | 2 | 0 |
+| Workspace State | 4 | 2 | 0 | 2 |
 | Security & Permissions | 8 | 3 | 0 | 5 |
 | Scheduling | 3 | 0 | 2 | 1 |
 | Telegram-Specific | 10 | 1 | 1 | 8 |
 | Cross-Adapter | 2 | 1 | 0 | 1 |
 | Error Recovery | 4 | 1 | 3 | 0 |
-| **Total** | **61** | **23** | **14** | **24** |
+| **Total** | **65** | **25** | **14** | **26** |
 
-**38% fully tested, 23% partially tested, 39% not tested.**
+**38% fully tested, 22% partially tested, 40% not tested.**
 
 ---
 

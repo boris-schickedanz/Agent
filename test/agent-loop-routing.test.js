@@ -77,7 +77,7 @@ describe('AgentLoop routing and guardrails (via HostDispatcher)', () => {
       content: 'Hello',
     };
 
-    const request = dispatcher.buildRequest(originalMessage);
+    const request = await dispatcher.buildRequest(originalMessage);
     const result = await runner.execute(request);
     const outboundResult = await dispatcher.finalize(request, result, originalMessage);
 

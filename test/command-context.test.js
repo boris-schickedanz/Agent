@@ -316,7 +316,7 @@ describe('HostDispatcher.buildRequest sets activeModel', () => {
       llmProvider: { getModel: () => 'claude-3-opus' },
     });
 
-    dispatcher.buildRequest({
+    await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: 'Hello',
@@ -353,7 +353,7 @@ describe('HostDispatcher.buildRequest sets activeModel', () => {
       // no llmProvider
     });
 
-    dispatcher.buildRequest({
+    await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: 'Hello',
