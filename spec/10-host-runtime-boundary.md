@@ -1,6 +1,6 @@
 # Spec 10 — Host & Runner Architecture
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-25
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## 1. Purpose
 
@@ -30,6 +30,7 @@ Define the architectural split between the **host** (control plane) and the **ru
 | History pruning (trim tool results in-memory) | Host | `HostDispatcher` → `HistoryPruner` |
 | Tool resolution (policy → schemas) | Host | `HostDispatcher` → `ToolPolicy`, `ToolRegistry` |
 | Memory search | Host | `HostDispatcher` → `MemorySearch` |
+| Workspace state scan | Host | `HostDispatcher` → `StateBootstrap` ([Spec 29](29-persistent-workspace-state.md)) |
 | Skill trigger matching | Host | `HostDispatcher` → `SkillLoader` |
 | System prompt assembly | Runtime | `PromptBuilder` (from data in request) |
 | ReAct loop (LLM + tool iteration) | Runtime | `AgentLoop` |
@@ -53,13 +54,14 @@ Adapter → EventBus(message:inbound) → Security Pipeline
                                       /new → clear history, respond, stop
                                       other → continue pipeline
                                            ↓
-                                    HostDispatcher.buildRequest()
+                                    HostDispatcher.buildRequest()  [async]
                                       Session resolution
                                       Active model injection (Spec 27)
                                       History loading
                                       History pruning (trim tool results)
                                       Tool resolution
                                       Memory search
+                                      Workspace state scan (Spec 29)
                                       Skill matching
                                            ↓
                                     MessageQueue.enqueue(sessionId, request)
@@ -141,6 +143,7 @@ A self-contained description of work. The runtime executes using only this data 
   allowedToolNames: Set<string> | null,  // null = all tools
   skillInstructions: string | null,
   memorySnippets: MemorySnippet[],  // { key, content (≤300 chars), metadata }
+  workspaceState: string | null,    // Pre-scanned project state (Spec 29), null if disabled/absent
   maxIterations: number,            // Default: 25
   timeoutMs: number | null,         // null = no limit
   createdAt: number,                // Unix ms
@@ -232,11 +235,11 @@ Extracts host concerns into a single orchestration point. Two methods: `buildReq
 new HostDispatcher({
   sessionManager, toolPolicy, toolRegistry, memorySearch,
   skillLoader, permissionManager, historyPruner,
-  eventBus, logger, config, llmProvider,
+  eventBus, logger, config, llmProvider, stateBootstrap,
 })
 ```
 
-### 9.1 buildRequest(sanitizedMessage, origin?)
+### 9.1 async buildRequest(sanitizedMessage, origin?)
 
 1. `sessionManager.resolveSessionId(message)` + `getOrCreate()`
 2. `sessionManager.loadHistory(sessionId)`
@@ -244,7 +247,8 @@ new HostDispatcher({
 4. `toolPolicy.getEffectiveToolNames()` → extract `.name` from annotated list → `toolRegistry.getSchemas(allowedToolNames)`
 5. Skill trigger matching (iterate `skillLoader.getLoadedSkills()`)
 6. `memorySearch.search(content, 5)` — truncate each to 300 chars, catch errors silently
-7. Return `createExecutionRequest({ ... })`
+7. `stateBootstrap.scan()` — load well-known state keys (`project_state`, `decision_journal`, `session_log`), catch errors silently. See [Spec 29](29-persistent-workspace-state.md).
+8. Return `createExecutionRequest({ ... })`
 
 ### 9.2 finalize(request, result, originalMessage?)
 

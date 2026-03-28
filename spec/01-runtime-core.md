@@ -1,6 +1,6 @@
 # Spec 01 — Runtime Core
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## 1. Purpose
 
@@ -113,6 +113,7 @@ async processMessage({
   userContent: string,
   toolSchemas: AnthropicToolSchema[],
   memorySnippets: MemorySnippet[],
+  workspaceState: string | null,
   skillInstructions: string | null,
   sessionMetadata: object,
   maxIterations: number,
@@ -125,7 +126,7 @@ async processMessage({
 
 **Processing steps:**
 
-1. **System prompt assembly** — `promptBuilder.build(sessionForPrompt, toolSchemas, skillInstructions, memorySnippets)`
+1. **System prompt assembly** — `promptBuilder.build(sessionForPrompt, toolSchemas, skillInstructions, memorySnippets, workspaceState)`
 2. **Message array construction** — `[...history, { role: 'user', content: userContent }]`
 3. **ReAct loop** (max `maxIterations` iterations):
    - a. **Cancellation check** — if `cancellationSignal.cancelled`, set `status: 'cancelled'`, break.
@@ -166,7 +167,7 @@ Extracts host concerns (session, tools, memory, skills, guardrails, persistence,
 **Interface:**
 
 ```js
-buildRequest(sanitizedMessage: NormalizedMessage, origin?: string): ExecutionRequest
+async buildRequest(sanitizedMessage: NormalizedMessage, origin?: string): ExecutionRequest
 async finalize(request: ExecutionRequest, result: ExecutionResult, originalMessage?: NormalizedMessage): OutboundMessage
 ```
 
@@ -177,7 +178,8 @@ async finalize(request: ExecutionRequest, result: ExecutionResult, originalMessa
 4. Tool resolution — `toolPolicy.getEffectiveToolNames()` → `toolRegistry.getSchemas()`
 5. Skill matching — iterate `skillLoader.getLoadedSkills()` for trigger match
 6. Memory search — `memorySearch.search(content, 5)`, truncate to 300 chars each
-7. Assemble `ExecutionRequest` with all resolved data
+7. Workspace state scan — `stateBootstrap.scan()` loads well-known state keys for prompt injection (see [Spec 29](29-persistent-workspace-state.md))
+8. Assemble `ExecutionRequest` with all resolved data
 
 **`finalize` steps:**
 1. Apply guardrails — `permissionManager.checkModelGuardrails(content)`
@@ -204,6 +206,7 @@ Defined in `src/index.js`. Components are instantiated in strict dependency orde
 4. LLM Provider (Anthropic or Ollama, based on `config.llmProvider`)
 5. Context Compactor
 6. Memory subsystems (ConversationMemory, PersistentMemory, MemorySearch)
+6b. State bootstrap (reads well-known persistent memory keys for prompt injection, see [Spec 29](29-persistent-workspace-state.md))
 7. Tool Registry + built-in tool registration (system, HTTP, memory tools)
 7b. Sandbox + AuditLogger (workspace path sandboxing, tool execution logging)
 7c. File system tools registration (read, write, edit, list, search, grep)
@@ -234,7 +237,7 @@ message:inbound
   → inputSanitizer.sanitize(message)         — strip dangerous content
   → inputSanitizer.detectInjection(content)  — soft check, log only
   → commandRouter.handle(sanitized)          — intercept /new, /approve, /reject, /agent etc.
-  → dispatcher.buildRequest(sanitized)       — resolve session, tools, memory, skills, prune history
+  → await dispatcher.buildRequest(sanitized)  — resolve session, tools, memory, skills, workspace state, prune history
   → onStreamEvent callback created           — bridges AgentLoop streaming to EventBus
   → messageQueue.enqueue(sessionId, request, onStreamEvent) — per-session serialization → runner.execute()
   → dispatcher.finalize(request, result)     — guardrails, persistence, delivery

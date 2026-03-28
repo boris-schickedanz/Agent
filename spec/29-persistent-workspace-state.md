@@ -1,6 +1,6 @@
 # Spec 29 — Persistent Workspace State
 
-> Status: **Draft** | Owner: — | Last updated: 2026-03-28
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## 1. Purpose
 
