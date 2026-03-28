@@ -137,8 +137,11 @@ Streaming: adapters implement `handleStreamEvent()` for `stream:start`, `stream:
 
 ## Session identity
 
+> **Single-user model note:** The PRD declares AgentCore as a single-user, single continuous session system where all adapters share one session ([PRD §1](PRD-Use-Cases.md)). The current implementation produces per-adapter session IDs and the `user_aliases` table is never queried. See [Spec 32](32-single-user-migration.md) for the migration plan.
+
 `SessionManager` (`src/core/session-manager.js`) resolves normalized messages to canonical session IDs:
-- Individual chats: `user:{canonicalUserId}` (cross-adapter via `user_aliases` table)
+- Current behavior: `user:{channelId}:{adapterUserId}` — produces separate sessions per adapter
+- Intended behavior: a single shared session ID for all adapters
 
 ## Skills
 

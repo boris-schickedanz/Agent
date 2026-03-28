@@ -42,7 +42,7 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `PRUNE_THRESHOLD` | `pruneThreshold` | number | No | `4000` | Chars above which tool results are pruned in-memory |
 | `PRUNE_HEAD` | `pruneHead` | number | No | `1500` | Chars to keep from start of pruned tool result |
 | `PRUNE_TAIL` | `pruneTail` | number | No | `1500` | Chars to keep from end of pruned tool result |
-| `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean/string[] | No | `false` | `true`: all new users get `user` role. `false`: they get `pending`. CSV list: only listed userIds are auto-approved. |
+| `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean/string[] | No | `false` | `true`: all new users get `user` role. `false`: they get `pending`. CSV list: only listed userIds are auto-approved. **Note:** Multi-user legacy — see [Spec 32](32-single-user-migration.md). |
 | `MASTER_KEY` | `masterKey` | string | No | `''` | Encryption key for the API key store. Falls back to `ANTHROPIC_API_KEY` if empty. |
 | | | | | | |
 | **Workspace & Security** (Spec 16) | | | | | |

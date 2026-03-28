@@ -60,6 +60,8 @@ shutdown(): void
 
 Manages session lifecycle. Sessions are keyed by a canonical ID that supports cross-adapter continuity.
 
+> **Single-user model note:** The current implementation produces per-adapter session IDs (`user:{channelId}:{userId}`), which means Console and Telegram get separate sessions with separate histories. The PRD requires all adapters to share a single session ([PRD §1](PRD-Use-Cases.md)). The `user_aliases` table referenced below is never queried. See [Spec 32](32-single-user-migration.md) for the migration plan.
+
 **Interface:**
 
 ```js

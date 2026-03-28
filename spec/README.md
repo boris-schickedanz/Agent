@@ -48,11 +48,12 @@ Specs for the coding companion capabilities.
 
 ## Draft
 
-Specs not yet implemented. These describe planned features and should not be treated as describing current behavior.
+Specs not yet implemented. These describe planned features or migration plans and should not be treated as describing current behavior.
 
 | Spec | Scope |
 |------|-------|
 | [28 — Lean System Prompt & Dynamic Tool Resolution](28-lean-system-prompt.md) | Two-tier tool resolution (core vs deferred), meta-tools (get_tool_details, get_agent_info), system prompt optimization |
+| [32 — Single-User Model Migration](32-single-user-migration.md) | Align code and specs with PRD's single-user, single-session model: unified session ID, simplified security, global rate limiting |
 
 ## Archived
 
