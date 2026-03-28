@@ -1,7 +1,10 @@
+const GLOBAL_KEY = 'global';
+
 export class RateLimiter {
   constructor(db, config) {
     this.db = db;
     this.limit = config.rateLimitPerMinute;
+    this._lastCleanupWindow = 0;
 
     this._stmts = {
       get: db.prepare(
@@ -15,20 +18,22 @@ export class RateLimiter {
       cleanup: db.prepare(
         'DELETE FROM rate_limits WHERE window_start < ?'
       ),
+      reset: db.prepare(
+        'DELETE FROM rate_limits WHERE user_id = ?'
+      ),
     };
   }
 
-  /**
-   * Try to consume one token for this user. Returns { allowed, retryAfterMs }.
-   */
-  consume(userId) {
-    const now = Math.floor(Date.now() / 60_000); // Current minute window
+  consume() {
+    const now = Math.floor(Date.now() / 60_000);
 
-    // Periodic cleanup of old windows
-    this._stmts.cleanup.run(now - 5);
+    // Only run cleanup once per minute-window transition
+    if (now !== this._lastCleanupWindow) {
+      this._stmts.cleanup.run(now - 5);
+      this._lastCleanupWindow = now;
+    }
 
-    // Check current count
-    const row = this._stmts.get.get(userId, now);
+    const row = this._stmts.get.get(GLOBAL_KEY, now);
     const currentCount = row ? row.token_count : 0;
 
     if (currentCount >= this.limit) {
@@ -39,13 +44,12 @@ export class RateLimiter {
       };
     }
 
-    // Consume a token
-    this._stmts.upsert.run(userId, now);
+    this._stmts.upsert.run(GLOBAL_KEY, now);
 
     return { allowed: true, retryAfterMs: 0 };
   }
 
-  reset(userId) {
-    this.db.prepare('DELETE FROM rate_limits WHERE user_id = ?').run(userId);
+  reset() {
+    this._stmts.reset.run(GLOBAL_KEY);
   }
 }

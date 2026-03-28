@@ -34,7 +34,7 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `CONSOLE_USER_ID` | `consoleUserId` | string | No | `'console-user'` | User ID for console adapter sessions |
 | `MAX_TOOL_ITERATIONS` | `maxToolIterations` | number | No | `25` | Maximum ReAct loop iterations per message |
 | `HEARTBEAT_INTERVAL_MINUTES` | `heartbeatIntervalMs` | number | No | `30` | Minutes between heartbeat ticks. Stored as milliseconds internally. `0` disables heartbeat. |
-| `RATE_LIMIT_MESSAGES_PER_MINUTE` | `rateLimitPerMinute` | number | No | `20` | Max messages per user per minute |
+| `RATE_LIMIT_MESSAGES_PER_MINUTE` | `rateLimitPerMinute` | number | No | `20` | Max messages per minute (global rate limit) |
 | `MAX_CONTEXT_TOKENS` | `maxContextTokens` | number | No | `100000` | Informational upper bound for context window |
 | `COMPACTION_THRESHOLD` | `compactionThreshold` | number | No | `80000` | Token estimate at which context compaction triggers |
 | `COMPACTION_RETAIN_MESSAGES` | `compactionRetainMessages` | number | No | `10` | Number of recent messages to keep after compaction |
@@ -42,7 +42,6 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `PRUNE_THRESHOLD` | `pruneThreshold` | number | No | `4000` | Chars above which tool results are pruned in-memory |
 | `PRUNE_HEAD` | `pruneHead` | number | No | `1500` | Chars to keep from start of pruned tool result |
 | `PRUNE_TAIL` | `pruneTail` | number | No | `1500` | Chars to keep from end of pruned tool result |
-| `AUTO_APPROVE_USERS` | `autoApproveUsers` | boolean/string[] | No | `false` | `true`: all new users get `user` role. `false`: they get `pending`. CSV list: only listed userIds are auto-approved. **Note:** Multi-user legacy — see [Spec 32](32-single-user-migration.md). |
 | `MASTER_KEY` | `masterKey` | string | No | `''` | Encryption key for the API key store. Falls back to `ANTHROPIC_API_KEY` if empty. |
 | | | | | | |
 | **Workspace & Security** (Spec 16) | | | | | |
@@ -78,7 +77,7 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 - `DATA_DIR` and `WORKSPACE_DIR` are resolved to absolute paths via `path.resolve()`.
 - `HEARTBEAT_INTERVAL_MINUTES` is converted to milliseconds: `value * 60_000`.
 - `DEFAULT_SHELL_TIMEOUT_SECONDS` is converted to milliseconds: `value * 1000`.
-- `AUTO_APPROVE_USERS`: `'true'` → boolean `true`, `'false'`/empty → boolean `false`, any other value → split on `,` to produce a string array of approved user IDs.
+- `AUTO_APPROVE_USERS`: Removed in [Spec 32](32-single-user-migration.md). If set in `.env`, it is silently ignored.
 
 ## 5. .env.example
 

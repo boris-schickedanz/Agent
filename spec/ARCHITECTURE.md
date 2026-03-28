@@ -17,8 +17,8 @@ AgentCore is an autonomous LLM agent that receives messages from multiple channe
                ▼
 ┌──────────────────────────────────┐
 │  Security Pipeline + Commands    │
-│  Rate Limiter → Permissions      │
-│  → Sanitizer → CommandRouter     │
+│  Rate Limiter → Sanitizer        │
+│  → CommandRouter                 │
 │  (/new /approve /reject /agent   │
 │   /model /project)              │
 └──────────────┬───────────────────┘
@@ -109,19 +109,19 @@ Built-in tools in `src/tools/built-in/`:
 
 ## Security pipeline
 
-Seven components in `src/security/` implement a three-layer model. See [spec 07](07-security.md).
+Components in `src/security/` implement a two-layer model. See [spec 07](07-security.md).
 
 ```
 Inbound message
-  → Layer 1: IDENTITY — PermissionManager checks user role (admin/user/pending/blocked)
-  → Layer 2: SCOPE — ToolPolicy filters available tools per role
-  → Layer 3: CONTENT — InputSanitizer strips injection patterns, truncates oversized input
+  → Layer 1: RATE LIMIT — RateLimiter enforces global rate limit
+  → Layer 2: CONTENT — InputSanitizer strips injection patterns, truncates oversized input
   → Agent Loop
 ```
 
-- **RateLimiter** (`rate-limiter.js`): Fixed-window rate limiting (default: 20 msg/min).
+- **RateLimiter** (`rate-limiter.js`): Fixed-window global rate limiting (default: 20 msg/min).
 - **ApprovalManager** (`approval-manager.js`): Interactive approve/reject workflow for write tools. Temporary grants (5-minute window). See [spec 19](19-approval-workflow.md).
-- **ToolPolicy** (`tool-policy.js`): Role-based allow/deny profiles — `full` (admin), `standard` (user, write tools gated by approval), `minimal` (pending). See [spec 23](23-read-write-tool-policy.md).
+- **ToolPolicy** (`tool-policy.js`): Single-user model — all tools available. See [spec 23](23-read-write-tool-policy.md).
+- **PermissionManager** (`permission-manager.js`): Single-user model — always allows. Provides `checkModelGuardrails()` for outbound content filtering.
 - **Sandbox** (`sandbox.js`): Workspace path confinement. Blocks directory traversal, symlink escapes, null bytes. See [spec 16](16-sandbox-and-audit.md).
 - **AuditLogger** (`audit-logger.js`): Logs all tool executions with name, input, output, duration, and success status to SQLite.
 
@@ -137,11 +137,7 @@ Streaming: adapters implement `handleStreamEvent()` for `stream:start`, `stream:
 
 ## Session identity
 
-> **Single-user model note:** The PRD declares AgentCore as a single-user, single continuous session system where all adapters share one session ([PRD §1](PRD-Use-Cases.md)). The current implementation produces per-adapter session IDs and the `user_aliases` table is never queried. See [Spec 32](32-single-user-migration.md) for the migration plan.
-
-`SessionManager` (`src/core/session-manager.js`) resolves normalized messages to canonical session IDs:
-- Current behavior: `user:{channelId}:{adapterUserId}` — produces separate sessions per adapter
-- Intended behavior: a single shared session ID for all adapters
+`SessionManager` (`src/core/session-manager.js`) resolves all normalized messages to the single canonical session ID `'user:default'`. All adapters share one session and one conversation history. The `channelId` and `userId` fields on the session object are preserved for outbound routing.
 
 ## Skills
 
@@ -246,10 +242,10 @@ agent-core/
 │   │   ├── sandbox.js             # Workspace path confinement
 │   │   ├── audit-logger.js        # Structured tool execution log
 │   │   ├── approval-manager.js    # Interactive tool approval workflow
-│   │   ├── permission-manager.js  # Three-layer authorization
-│   │   ├── rate-limiter.js        # Fixed-window rate limiting
+│   │   ├── permission-manager.js  # Single-user authorization (always allows) + model guardrails
+│   │   ├── rate-limiter.js        # Fixed-window global rate limiting
 │   │   ├── input-sanitizer.js     # Injection detection
-│   │   ├── tool-policy.js         # Role-based tool access (fs/shell/delegation scopes)
+│   │   ├── tool-policy.js         # Single-user model — all tools available
 │   │   └── api-key-store.js       # AES-256-GCM key storage
 │   ├── web/
 │   │   ├── health.js              # GET /health, GET /status

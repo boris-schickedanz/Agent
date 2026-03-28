@@ -18,7 +18,7 @@ Start with specs 01 and 10 for the overall architecture, then read subsystem spe
 | [04 — Memory](04-memory.md) | Conversation history, persistent memory, FTS5 search |
 | [05 — Skills](05-skills.md) | Skill format, loading, activation, lifecycle |
 | [06 — Adapters](06-adapters.md) | Adapter interface, normalized message contract, console and Telegram adapters |
-| [07 — Security](07-security.md) | Three-layer model (identity, scope, content), rate limiting, sanitization, encryption |
+| [07 — Security](07-security.md) | Two-layer model (rate limiting, content sanitization), approval workflow, encryption |
 | [08 — Database](08-database.md) | SQLite schema, migrations, connection management |
 | [09 — Configuration](09-configuration.md) | Environment variables, defaults, type coercion |
 | [10 — Host & Runner Architecture](10-host-runtime-boundary.md) | Host/runtime boundary, runner interface, ExecutionRequest/Result, HostDispatcher, orchestration flow, parallelism, timeout/cancellation |
@@ -44,6 +44,7 @@ Specs for the coding companion capabilities.
 | [27 — Command Context Persistence](27-command-context-persistence.md) | Persist `/model` and `/agent` command exchanges to history; include active model in system prompt |
 | [29 — Persistent Workspace State](29-persistent-workspace-state.md) | Well-known memory keys for project state, decision journal, session log; state bootstrap injection into system prompt; continuation protocol |
 | [31 — Multi-Project Support](31-multi-project.md) | Named project contexts with switching; active project state injection; `/project` command and `switch_project` tool |
+| [32 — Single-User Model Migration](32-single-user-migration.md) | Unified session ID, simplified security (approval-only), global rate limiting, removed AUTO_APPROVE_USERS |
 | [Use Cases & PRD](PRD-Use-Cases.md) | Complete user-facing use case inventory, personas, E2E test coverage tracking |
 
 ## Draft
@@ -53,7 +54,6 @@ Specs not yet implemented. These describe planned features or migration plans an
 | Spec | Scope |
 |------|-------|
 | [28 — Lean System Prompt & Dynamic Tool Resolution](28-lean-system-prompt.md) | Two-tier tool resolution (core vs deferred), meta-tools (get_tool_details, get_agent_info), system prompt optimization |
-| [32 — Single-User Model Migration](32-single-user-migration.md) | Align code and specs with PRD's single-user, single-session model: unified session ID, simplified security, global rate limiting |
 
 ## Archived
 

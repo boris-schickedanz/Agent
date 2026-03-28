@@ -122,7 +122,7 @@ CREATE VIRTUAL TABLE memory_fts USING fts5(
 
 ### 4.4 Users
 
-User identity and role management.
+User identity table. Retained for backward compatibility (no destructive migrations). The `ApprovalManager` reads the `role` column to determine admin bypass for the approval workflow ([Spec 19](19-approval-workflow.md)). The `heartbeat-scheduler` and `scheduler` insert a `system` user with `admin` role on startup. No other code writes to this table in the single-user model ([Spec 32](32-single-user-migration.md)).
 
 ```sql
 CREATE TABLE users (

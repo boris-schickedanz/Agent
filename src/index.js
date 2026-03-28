@@ -116,8 +116,8 @@ async function main() {
   const inputSanitizer = new InputSanitizer();
   const rateLimiter = new RateLimiter(db, config);
   const approvalManager = new ApprovalManager({ db, eventBus, auditLogger, logger });
-  const toolPolicy = new ToolPolicy(db, config, approvalManager);
-  const permissionManager = new PermissionManager(db, toolPolicy, config);
+  const toolPolicy = new ToolPolicy();
+  const permissionManager = new PermissionManager();
 
   // Phase 6: Prompt Builder
   const promptBuilder = new PromptBuilder(config);
@@ -201,30 +201,15 @@ async function main() {
   eventBus.on('message:inbound', async (message) => {
     const start = Date.now();
 
-    // Rate limiting
-    const rateCheck = rateLimiter.consume(message.userId);
+    // Rate limiting (global bucket — single-user model)
+    const rateCheck = rateLimiter.consume();
     if (!rateCheck.allowed) {
-      logger.warn({ userId: message.userId }, 'Rate limited');
+      logger.warn('Rate limited');
       eventBus.emit('message:outbound', {
         sessionId: message.sessionId,
         channelId: message.channelId,
         userId: message.userId,
         content: `Rate limit exceeded. Please wait ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.`,
-        replyTo: message.id,
-        metadata: { toolsUsed: [], tokenUsage: { inputTokens: 0, outputTokens: 0 }, processingTimeMs: 0 },
-      });
-      return;
-    }
-
-    // Permission check
-    const accessCheck = permissionManager.checkAccess(message.userId, message.channelId);
-    if (!accessCheck.allowed) {
-      logger.warn({ userId: message.userId, reason: accessCheck.reason }, 'Access denied');
-      eventBus.emit('message:outbound', {
-        sessionId: message.sessionId,
-        channelId: message.channelId,
-        userId: message.userId,
-        content: `Access denied: ${accessCheck.reason}`,
         replyTo: message.id,
         metadata: { toolsUsed: [], tokenUsage: { inputTokens: 0, outputTokens: 0 }, processingTimeMs: 0 },
       });

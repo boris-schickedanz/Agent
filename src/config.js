@@ -18,11 +18,6 @@ export const config = Object.freeze({
   pruneThreshold: parseInt(process.env.PRUNE_THRESHOLD || '4000', 10),
   pruneHead: parseInt(process.env.PRUNE_HEAD || '1500', 10),
   pruneTail: parseInt(process.env.PRUNE_TAIL || '1500', 10),
-  autoApproveUsers: process.env.AUTO_APPROVE_USERS === 'true'
-    ? true
-    : process.env.AUTO_APPROVE_USERS && process.env.AUTO_APPROVE_USERS !== 'false'
-      ? process.env.AUTO_APPROVE_USERS.split(',').map(s => s.trim()).filter(Boolean)
-      : false,
   masterKey: process.env.MASTER_KEY || '',
   llmProvider: process.env.LLM_PROVIDER || 'anthropic',
   model: process.env.MODEL || 'claude-sonnet-4-20250514',

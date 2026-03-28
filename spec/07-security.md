@@ -1,36 +1,31 @@
 # Spec 07 — Security
 
-> Status: **Implemented** | Owner: — | Last updated: 2026-03-27
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## 1. Purpose
 
-The security system protects the agent from abuse, unauthorized access, and prompt injection. It uses a three-layer model evaluated on every inbound message and tool execution.
+The security system protects the agent from abuse and prompt injection. AgentCore is a **single-user, single continuous session** system. The approval workflow ([Spec 19](19-approval-workflow.md)) is the primary safety mechanism for destructive tools. Content sanitization and injection detection protect against prompt injection.
 
-> **Single-user model note:** The PRD declares AgentCore as a single-user system ([PRD §1](PRD-Use-Cases.md), [PRD §5](PRD-Use-Cases.md)). The multi-user role hierarchy (admin/user/pending/blocked), per-user rate limiting, and role-based tool policies described below are legacy infrastructure. In the intended single-user model, the approval workflow ([Spec 19](19-approval-workflow.md)) is the primary safety mechanism — not roles. See [Spec 32](32-single-user-migration.md) for the migration plan.
-
-## 2. Three-Layer Security Model
+## 2. Two-Layer Security Model
 
 ```
 Inbound message
   │
   ▼
 ┌─────────────────────────┐
-│ Layer 1: IDENTITY        │  Who is this user?
-│ (PermissionManager)      │  → admin / user / pending / blocked
+│ Layer 1: RATE LIMIT      │  Global rate limiting
+│ (RateLimiter)            │  → reject if exceeded
 └────────────┬────────────┘
              ▼
 ┌─────────────────────────┐
-│ Layer 2: SCOPE           │  What can they do?
-│ (ToolPolicy)             │  → tool allow/deny lists per role
-└────────────┬────────────┘
-             ▼
-┌─────────────────────────┐
-│ Layer 3: MODEL           │  Content safety
+│ Layer 2: CONTENT         │  Content safety
 │ (InputSanitizer)         │  → injection detection, sanitization
 └────────────┬────────────┘
              ▼
         Agent Loop
 ```
+
+The approval workflow ([Spec 19](19-approval-workflow.md)) gates destructive tools (write, shell) at the tool execution layer, not the inbound pipeline.
 
 ## 3. Components
 
@@ -39,91 +34,61 @@ Inbound message
 **File:** `src/security/permission-manager.js`
 **Class:** `PermissionManager`
 
+Single-user model: all access checks always allow. The only active behavior is `checkModelGuardrails()` for outbound content filtering.
+
 **Interface:**
 
 ```js
-checkAccess(userId: string, channelId: string): { allowed: boolean, role?: string, reason?: string }
-checkScope(userId: string, toolName: string): boolean
+checkAccess(userId: string, channelId: string): { allowed: true, role: 'admin' }
+checkScope(userId: string, toolName: string): true
 checkModelGuardrails(content: string): { safe: boolean, content: string }
-authorize(userId: string, channelId: string, toolName?: string): { allowed: boolean, role?: string, reason?: string }
+authorize(userId: string, channelId: string, toolName?: string): { allowed: true, role: 'admin' }
 ```
-
-**`checkAccess` behavior:**
-1. Query `users` table for the user's role.
-2. If `role === 'blocked'` → `{ allowed: false, reason: 'User is blocked' }`.
-3. If user not found → auto-register with role `'user'` (if `AUTO_APPROVE_USERS=true`) or `'pending'`.
-4. Console channel always gets `admin` role on authorization errors (fail-open for local dev).
-5. External channels fail closed on errors.
 
 **`checkModelGuardrails` behavior:**
 - Strips accidentally leaked markers: `system:`, `[INTERNAL]`, `[SYSTEM]`.
 - Returns sanitized content.
-- Called by `HostDispatcher.finalize()` after the runner returns. The guardrailed content is applied to both the outbound message and the persisted conversation history (the last assistant message in `newMessages` is updated with the filtered content before `appendMessages` is called).
+- Called by `HostDispatcher.finalize()` after the runner returns. The guardrailed content is applied to both the outbound message and the persisted conversation history.
 
 ### 3.2 Tool Policy
 
 **File:** `src/security/tool-policy.js`
 **Class:** `ToolPolicy`
 
-Role-based tool access control using allow/deny profiles.
+Single-user model: all tools are available. The approval workflow ([Spec 19](19-approval-workflow.md)) is the safety gate for destructive tools.
 
 **Interface:**
 
 ```js
-constructor(db, config, approvalManager?)
-isAllowed(toolName: string, userId: string, session: Session): boolean
-getEffectiveToolNames(userId: string, session: Session): Array<{ name, requiresApproval }> | null
+isAllowed(toolName: string, userId?: string, session?: Session): true
+getEffectiveToolNames(userId?: string, session?: Session): null
 ```
 
-**Default profiles:**
-
-| Profile | Allow | Deny |
-|---------|-------|------|
-| `minimal` | `get_current_time` | `*` (everything else) |
-| `standard` | `get_current_time`, `wait`, `search_memory`, `list_memories`, `http_get`, `read_file`, `list_directory`, `file_search`, `grep_search`, `list_processes`, `check_process`, `check_delegation`, `save_memory`, `http_post`, `write_file`, `edit_file`, `run_command`, `run_command_background`, `kill_process`, `delegate_task`, `cancel_delegation` | (nothing — write tools gated by approval workflow, see Spec 19) |
-| `full` | `*` (everything) | (nothing) |
-
-**Role → Profile mapping:**
-
-| Role | Profile |
-|------|---------|
-| `admin` | `full` |
-| `user` | `standard` |
-| `pending` | `minimal` |
-| `blocked` | (no access) |
-
-**Evaluation rules:**
-1. Deny patterns are evaluated first.
-2. If a tool matches a deny pattern, check if it's explicitly listed in allow. Explicit allow overrides wildcard deny.
-3. If no deny matches, check allow patterns.
-4. Pattern matching: `*` matches everything; `prefix*` matches tools starting with prefix; exact string matches exactly.
-
-**`getEffectiveToolNames` behavior:**
-- Returns `null` if allow includes `*` (meaning all tools are available — used by HostDispatcher to skip filtering).
-- Returns `Array<{ name, requiresApproval }>` otherwise — each tool annotated with whether it requires approval (cross-referenced with `ApprovalManager.requiresApproval()`).
+- `isAllowed()` always returns `true`.
+- `getEffectiveToolNames()` always returns `null` (meaning all tools are available — used by HostDispatcher to skip filtering).
 
 ### 3.3 Rate Limiter
 
 **File:** `src/security/rate-limiter.js`
 **Class:** `RateLimiter`
 
-Fixed-window rate limiting stored in SQLite.
+Fixed-window rate limiting with a single global bucket.
 
 **Interface:**
 
 ```js
-consume(userId: string): { allowed: boolean, retryAfterMs: number }
-reset(userId: string): void
+consume(): { allowed: boolean, retryAfterMs: number }
+reset(): void
 ```
 
 **Algorithm:**
 1. Compute current window: `Math.floor(Date.now() / 60_000)` (1-minute windows).
 2. Clean up old windows (older than 5 minutes).
-3. Query current count for user + window.
+3. Query current count for the `'global'` bucket + window.
 4. If `count >= config.rateLimitPerMinute` → `{ allowed: false, retryAfterMs }`.
 5. Otherwise, upsert to increment count → `{ allowed: true, retryAfterMs: 0 }`.
 
-**Storage:** `rate_limits` table with composite primary key `(user_id, window_start)`.
+**Storage:** `rate_limits` table with composite primary key `(user_id, window_start)`. Uses `'global'` as the `user_id` value.
 
 ### 3.4 Input Sanitizer
 
@@ -184,47 +149,33 @@ list(): string[]    // Returns service names, NOT keys
 
 **Storage:** `api_keys` table with columns: `service`, `encrypted_key` (BLOB), `iv` (BLOB), `auth_tag` (BLOB).
 
-## 4. User Roles
-
-| Role | Access | Auto-assigned when |
-|------|--------|--------------------|
-| `admin` | All tools, all commands | Console adapter (fallback) |
-| `user` | Standard tool set | `AUTO_APPROVE_USERS=true` |
-| `pending` | Minimal tools (time only) | `AUTO_APPROVE_USERS=false` (default) |
-| `blocked` | No access | Admin blocks a user |
-
-Users are stored in the `users` table. Role changes require direct database modification or a future admin command system.
-
-## 5. Security Pipeline in the Inbound Message Handler
+## 4. Security Pipeline in the Inbound Message Handler
 
 ```js
 // src/index.js — message:inbound handler
-1. rateLimiter.consume(userId)                       // Rate limit gate
-2. permissionManager.checkAccess(userId, channelId)  // Identity gate
-3. inputSanitizer.sanitize(message)                  // Sanitization
-4. inputSanitizer.detectInjection(content)            // Injection detection (log only)
-5. dispatcher.buildRequest(sanitized)                 // Host resolves session, tools, memory, skills
-6. messageQueue.enqueue(sessionId, request)           // → runner.execute() → AgentLoop
-7. dispatcher.finalize(request, result, message)      // Guardrails, persistence, delivery
+1. rateLimiter.consume()                         // Global rate limit gate
+2. inputSanitizer.sanitize(message)              // Sanitization
+3. inputSanitizer.detectInjection(content)        // Injection detection (log only)
+4. commandRouter.handle(sanitized)               // Intercept /new, /approve, /reject, /agent, /model, /project
+5. dispatcher.buildRequest(sanitized)             // Host resolves session, tools, memory, skills
+6. messageQueue.enqueue(sessionId, request, onStreamEvent)  // → runner.execute() → AgentLoop
+7. dispatcher.finalize(request, result, message)  // Guardrails, persistence, delivery
 ```
 
-Each gate (steps 1-3) can reject the message. Rejections emit a `message:outbound` with an error message. Outbound guardrails (step 7) are applied by `HostDispatcher.finalize()`, not inside the agent loop.
+Step 1 can reject the message with a `message:outbound` error. Step 4 can consume the message (handled commands don't reach the LLM). Errors in steps 5-7 are caught and logged. Outbound guardrails (step 7) are applied by `HostDispatcher.finalize()`, not inside the agent loop.
 
-## 6. Design Decisions
+## 5. Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| Three layers evaluated sequentially | Clear separation of concerns. Each layer has a single responsibility. |
+| Single-user, approval-based safety | Roles are unnecessary for single-user. The approval workflow gates destructive tools interactively. |
 | Soft injection detection | Hard blocking causes false positives. Logging allows monitoring without breaking legitimate usage. |
 | Fixed-window rate limiting | Simple, no external dependencies. Sufficient for single-instance deployment. |
+| Global rate limit bucket | Single user, single bucket. No per-user tracking needed. |
 | AES-256-GCM for key storage | Authenticated encryption. Standard, well-understood, available in Node.js `crypto`. |
-| Console fails open | Local development should not be blocked by security. External channels fail closed. |
-| Roles stored in SQLite | Simple, queryable, transactional. No need for JWT/session tokens at this scale. |
 
-## 7. Extension Points
+## 6. Extension Points
 
-- **Admin commands:** Add tool-based user management (`/admin approve <userId>`, `/admin block <userId>`).
 - **Token bucket rate limiting:** Replace fixed-window with token bucket for smoother rate limiting.
 - **Output filtering:** Expand `checkModelGuardrails` to scan for PII, credential leaks, or other sensitive data in outbound messages.
-- **Per-channel policies:** Allow different tool policy profiles per channel (e.g., more restricted in public groups).
 - **Webhook authentication:** Add signature verification for webhook-based adapters.

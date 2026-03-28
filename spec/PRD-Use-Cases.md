@@ -10,7 +10,7 @@ AgentCore is a **single-user, single continuous session** system. One user inter
 
 The user has access to all tools, with an approval workflow gating destructive operations (write, shell) for safety.
 
-**Note:** The codebase still contains multi-user permission infrastructure (roles, per-user rate limiting, user_aliases table) that predates this model. These are planned for removal — see section 5.
+Legacy multi-user infrastructure (roles, per-user rate limiting, `user_aliases` table) has been removed from active code paths per [Spec 32](32-single-user-migration.md). Database tables remain in place (no destructive migrations) but are no longer referenced.
 
 ---
 
@@ -140,7 +140,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| X1 | Same user, different adapters | User talks via console then Telegram | Same session, shared conversation history and project context | SessionManager | No (**code needs fix: currently per-adapter session IDs**) |
+| X1 | Same user, different adapters | User talks via console then Telegram | Same session, shared conversation history and project context | SessionManager | No (unified session ID — [Spec 32](32-single-user-migration.md)) |
 | X2 | Outbound routing | Response to Telegram user | Message routed to correct adapter by channelId | AdapterRegistry, EventBus | Yes (pipeline-e2e) |
 
 ### 2.14 Error Recovery
@@ -187,28 +187,13 @@ A1-A5 (agent profiles), C2/M4 (memory flush), C5/TG7 (streaming), S5 (timeout), 
 **P2 — Write eventually** (edge cases):
 TG8-TG10 (chunking, callbacks, markdown), T3 (task delivery), E1 (LLM error in pipeline)
 
-## 5. Known Inconsistencies (Code & Specs)
+## 5. Resolved Inconsistencies
 
-The codebase and several specs still reflect the old multi-user, multi-session model. The PRD (this document) is the authority — AgentCore is a **single-user, single continuous session** system. The migration plan is in [Spec 32](32-single-user-migration.md).
+The following inconsistencies from the old multi-user model have been resolved by [Spec 32](32-single-user-migration.md):
 
-### 5.1 Code Inconsistencies
-
-| Issue | Files | Description |
-|-------|-------|-------------|
-| **Per-adapter session IDs** | `src/core/session-manager.js` | `resolveSessionId` returns `user:{channelId}:{userId}` — should return a single shared session ID for all adapters |
-| **Multi-user permission system** | `src/security/permission-manager.js`, `src/security/tool-policy.js` | Role hierarchy (admin/user/pending/blocked) is dead code for single-user. Simplify to: all tools available, approval workflow for safety. |
-| **Per-user rate limiting** | `src/security/rate-limiter.js` | Rate limiter buckets by userId. Should be a global rate limiter. |
-| **user_aliases table** | `src/db/migrations/002-user-aliases.js` | Migration creates unused `user_aliases` table. Leave in place (safe) but no longer referenced. |
-| **Multi-user security threats** | `spec/99-security-threat-analysis.md` | Several threats marked N/A but the analysis structure still assumes multi-user. |
-
-### 5.2 Spec Inconsistencies
-
-The following specs describe multi-user behavior that contradicts this PRD's single-user model. They will be updated as part of the [Spec 32 migration](32-single-user-migration.md).
-
-| Spec | Issue |
-|------|-------|
-| **[Spec 07 — Security](07-security.md)** | Describes 4-role hierarchy (admin/user/pending/blocked), per-user rate limiting, and role-based tool profiles. In single-user, the approval workflow ([Spec 19](19-approval-workflow.md)) is the primary safety mechanism — not roles. |
-| **[Spec 01 — Runtime Core](01-runtime-core.md)** | SessionManager §2.3 describes session IDs as `user:{channelId}:{userId}` and cross-adapter resolution via `user_aliases` table (never queried). Should produce a single shared session ID. |
-| **[Spec 06 — Adapters](06-adapters.md)** | Normalized message format §3 defines `sessionId` as `{channelId}:{chatId}`, producing per-adapter sessions. All adapters should share one session. |
-| **[Spec 09 — Configuration](09-configuration.md)** | `AUTO_APPROVE_USERS` supports per-user CSV lists — irrelevant for single-user. |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Session identity section describes `user_aliases`-based cross-adapter resolution that is not implemented. |
+- **Unified session ID** — `resolveSessionId()` now returns `'user:default'` for all adapters (single shared session).
+- **Simplified security** — Role-based access control removed. `PermissionManager` always allows; `ToolPolicy` returns all tools. Approval workflow ([Spec 19](19-approval-workflow.md)) is the safety mechanism.
+- **Global rate limiting** — Single global bucket instead of per-user rate limiting.
+- **`AUTO_APPROVE_USERS` removed** — Config variable no longer exists (silently ignored if set in `.env`).
+- **`user_aliases` table** — Migration remains in place (safe) but table is no longer referenced.
+- Specs 01, 06, 07, 09, and ARCHITECTURE.md have been updated to reflect the single-user model.

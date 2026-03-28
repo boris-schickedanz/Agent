@@ -112,9 +112,9 @@ Search file contents for a pattern.
 
 **File:** `src/security/tool-policy.js`
 
-`standard` profile (non-admin users):
-- **Allow:** `read_file`, `list_directory`, `file_search`, `grep_search` (read-only access)
-- **Deny:** `write_file`, `edit_file` (require admin role or approval)
+All workspace tools are available in the single-user model ([Spec 32](32-single-user-migration.md)). Write tools require approval via the approval workflow ([Spec 19](19-approval-workflow.md)):
+- **Read tools (no approval):** `read_file`, `list_directory`, `file_search`, `grep_search`
+- **Write tools (approval required):** `write_file`, `edit_file`
 
 ## 4. Design Decisions
 

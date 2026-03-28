@@ -4,14 +4,12 @@
 
 ## 1. Purpose
 
-The `standard` tool policy profile (for `user` role) currently blocks all workspace and shell tools via a hardcoded deny list. This means regular users cannot use tools like `list_processes`, `check_process`, or any file/shell tools — even though the approval workflow (Spec 19) already gates dangerous operations behind explicit user consent.
+This spec established the read/write tool classification and made the approval workflow ([Spec 19](19-approval-workflow.md)) the primary security gate for write operations.
 
-This spec changes the `standard` profile so that:
+> **Note:** As of [Spec 32](32-single-user-migration.md), `ToolPolicy` always returns all tools (single-user model). The read/write classification below remains relevant for the **approval workflow** — it determines which tools require interactive approval before execution.
 
-- **Read tools** are allowed by default (no approval needed).
-- **Write tools** are allowed but gated by the approval workflow (user must approve before execution).
-
-This makes the approval manager the primary security gate for write operations, rather than blocking them entirely at the policy level.
+- **Read tools** are allowed without approval.
+- **Write tools** require approval via the approval workflow (user must approve before execution).
 
 ## 2. Design
 
@@ -22,7 +20,7 @@ Every tool is classified as **read** or **write** based on whether it mutates st
 | Category | Definition | Examples |
 |----------|-----------|----------|
 | **Read** | Observes state without side effects. Safe to run without confirmation. | `read_file`, `list_directory`, `grep_search`, `list_processes`, `check_process`, `http_get`, `search_memory`, `list_memories`, `check_delegation` |
-| **Write** | Mutates state (files, processes, network, memory). Requires approval for non-admin users. | `write_file`, `edit_file`, `run_command`, `run_command_background`, `kill_process`, `http_post`, `save_memory`, `delegate_task`, `cancel_delegation` |
+| **Write** | Mutates state (files, processes, network, memory). Requires approval via the approval workflow. | `write_file`, `edit_file`, `run_command`, `run_command_background`, `kill_process`, `http_post`, `save_memory`, `delegate_task`, `cancel_delegation` |
 
 ### 2.2 Updated Standard Profile
 
@@ -85,23 +83,23 @@ Every write tool requires approval for each individual execution. There is no se
 
 ### 2.4 Minimal and Full Profiles — No Change
 
-- **`minimal`** (pending users): Unchanged. Still restricted to `get_current_time` only.
-- **`full`** (admin users): Unchanged. Allow `*`, deny nothing, bypass approval.
+- **`minimal`** (legacy — no longer active): Was restricted to `get_current_time` only.
+- **`full`** (current — single-user model): Allow `*`, deny nothing. All tools available; write tools gated by approval workflow.
 
 ## 3. Affected Components
 
+> **Note:** After [Spec 32](32-single-user-migration.md), `ToolPolicy` is a no-arg stub (`isAllowed()` → `true`, `getEffectiveToolNames()` → `null`). The approval workflow in `ApprovalManager` is now the sole safety gate for write tools.
+
 | File | Change |
 |------|--------|
-| `src/security/tool-policy.js` | Update `standard` profile allow list; change `getEffectiveToolNames` to return `{ name, approval }[]`; accept `ApprovalManager` reference |
-| `src/security/approval-manager.js` | Replace `TOOL_APPROVAL_DEFAULTS` map with exported `TOOLS_REQUIRING_APPROVAL` set; remove session cache; expose `requiresApproval(toolName): boolean` method |
-| `src/core/host-dispatcher.js` | Update `buildRequest` to handle new `{ name, approval }[]` shape from `getEffectiveToolNames` |
-| `src/index.js` | Pass `ApprovalManager` to `ToolPolicy` constructor |
-| Spec 07 (Security) | Update §3.2 standard profile table |
-| Spec 19 (Approval Workflow) | Update §3.2 approval defaults table |
+| `src/security/tool-policy.js` | Simplified to always return all tools (single-user model) |
+| `src/security/approval-manager.js` | Exports `TOOLS_REQUIRING_APPROVAL` set; exposes `requiresApproval(toolName): boolean` method |
+| `src/core/host-dispatcher.js` | Handles `null` from `getEffectiveToolNames` (all tools available) |
+| `src/index.js` | `ToolPolicy` constructed with no arguments |
 
 ### 2.5 `getEffectiveToolNames` Behavior
 
-`getEffectiveToolNames` must continue to return an explicit list for `standard` users — not `null`. Returning `null` means "all tools" and bypasses schema filtering in `HostDispatcher`, which is only appropriate for `full` (admin) profiles.
+`getEffectiveToolNames` returns `null` in the single-user model (all tools available). The annotated return type below is retained for reference but is not active.
 
 The method signature changes to return approval metadata alongside each tool name, so callers (and ultimately users) can see which tools are freely available and which require approval:
 

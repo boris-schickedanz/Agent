@@ -56,7 +56,7 @@ Tools requiring approval are defined in the exported `TOOLS_REQUIRING_APPROVAL` 
 | `cancel_delegation` | yes |
 | All other tools | no |
 
-Admin users (`role: 'admin'`) bypass approval entirely (checked via DB query in `_getUserRole()`).
+Users with `role: 'admin'` in the `users` table bypass approval (checked via `_getUserRole()` DB query). In the single-user model, the `system` user (inserted by the heartbeat scheduler and task scheduler on startup) has admin role and bypasses approval. Users not found in the `users` table default to `'pending'` role, meaning approval is always required.
 
 ### 3.3 Approval Flow in Detail
 

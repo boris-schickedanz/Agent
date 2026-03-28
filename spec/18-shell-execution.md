@@ -120,7 +120,7 @@ When `SHELL_CONTAINER=true`, ProcessManager executes all shell commands inside a
 
 ## 3. Tool Policy Updates
 
-`standard` profile denies all shell tools: `run_command`, `run_command_background`, `kill_process`. Shell tools are admin-only, or available to non-admin users via the approval workflow (Spec 19).
+All shell tools are available in the single-user model ([Spec 32](32-single-user-migration.md)). Shell tools (`run_command`, `run_command_background`, `kill_process`) require approval via the approval workflow ([Spec 19](19-approval-workflow.md)).
 
 ## 4. Graceful Shutdown
 

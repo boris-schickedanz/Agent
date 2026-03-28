@@ -58,14 +58,11 @@ shutdown(): void
 **File:** `src/core/session-manager.js`
 **Class:** `SessionManager`
 
-Manages session lifecycle. Sessions are keyed by a canonical ID that supports cross-adapter continuity.
-
-> **Single-user model note:** The current implementation produces per-adapter session IDs (`user:{channelId}:{userId}`), which means Console and Telegram get separate sessions with separate histories. The PRD requires all adapters to share a single session ([PRD §1](PRD-Use-Cases.md)). The `user_aliases` table referenced below is never queried. See [Spec 32](32-single-user-migration.md) for the migration plan.
+Manages session lifecycle. All adapters share a single session (`user:default`) — this is a single-user, single continuous session system.
 
 **Interface:**
 
 ```js
-resolveCanonicalUserId(adapterUserId: string, channelId: string): string
 resolveSessionId(normalizedMessage: NormalizedMessage): string
 getOrCreate(sessionId: string, userId: string, channelId: string, userName?: string): Session
 loadHistory(sessionId: string, limit?: number): Message[]
@@ -75,7 +72,7 @@ appendMessages(sessionId: string, messages: Message[]): void
 
 **Session ID resolution:**
 
-- `user:{canonicalUserId}` where `canonicalUserId` is resolved via the `user_aliases` table, falling back to `{channelId}:{adapterUserId}`. Example: `user:telegram:12345`.
+- `resolveSessionId()` always returns `'user:default'`. All adapters share one session and one conversation history.
 
 **Session object shape:**
 
@@ -91,8 +88,7 @@ appendMessages(sessionId: string, messages: Message[]): void
 ```
 
 **Behavior:**
-- `resolveCanonicalUserId` checks the `user_aliases` table for cross-adapter identity mapping. Falls back to `channelId:adapterUserId`.
-- `resolveSessionId` resolves the canonical session ID for the single user.
+- `resolveSessionId` always returns `'user:default'` — all adapters share one session.
 - Sessions are cached in-memory (`Map`) and persisted to the `sessions` SQLite table.
 - `getOrCreate` does an `INSERT ... ON CONFLICT ... DO UPDATE` to upsert the session row.
 - `loadHistory` and `appendMessages` delegate to `ConversationMemory`.
@@ -233,8 +229,7 @@ Defined in `src/index.js`. Components are instantiated in strict dependency orde
 
 ```
 message:inbound
-  → rateLimiter.consume(userId)              — reject if rate limited
-  → permissionManager.checkAccess(userId, channelId)  — reject if blocked
+  → rateLimiter.consume()                    — reject if rate limited (global bucket)
   → inputSanitizer.sanitize(message)         — strip dangerous content
   → inputSanitizer.detectInjection(content)  — soft check, log only
   → commandRouter.handle(sanitized)          — intercept /new, /approve, /reject, /agent, /model, /project
