@@ -18,6 +18,7 @@ export class DashboardServer extends HealthServer {
     this.scheduler = opts.scheduler || null;
     this.agentRegistry = opts.agentRegistry || null;
     this.persistentMemory = opts.persistentMemory || null;
+    this.projectManager = opts.projectManager || null;
     this.conversationMemory = opts.conversationMemory || null;
     this.publicDir = resolve('src/web/public');
   }
@@ -74,6 +75,7 @@ export class DashboardServer extends HealthServer {
       '/api/agents': () => this._apiAgents(req, res),
       '/api/memory': () => this._apiMemoryList(req, res),
       '/api/workspace-state': () => this._apiWorkspaceState(req, res),
+      '/api/projects': () => this._apiProjects(req, res),
     };
 
     const handler = routes[url];
@@ -165,8 +167,21 @@ export class DashboardServer extends HealthServer {
       return;
     }
     try {
-      const keys = await this.persistentMemory.list();
-      this._json(res, keys);
+      const globalKeys = await this.persistentMemory.list();
+      const result = globalKeys.map(k => ({ key: k, scope: 'global' }));
+
+      // Include project-scoped keys when a project is active
+      if (this.projectManager) {
+        const activeSlug = this.projectManager.getActive();
+        if (activeSlug) {
+          const projectMemory = this.projectManager.getActiveMemory();
+          const projectKeys = await projectMemory.list();
+          for (const k of projectKeys) {
+            result.push({ key: k, scope: 'project', project: activeSlug });
+          }
+        }
+      }
+      this._json(res, result);
     } catch {
       this._json(res, []);
     }
@@ -179,13 +194,34 @@ export class DashboardServer extends HealthServer {
       return;
     }
     try {
-      const content = await this.persistentMemory.load(key);
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      const scope = params.get('scope');
+
+      // Try project memory first if scope=project or if key is a workspace key and project is active
+      let content = null;
+      let resolvedScope = 'global';
+
+      if (this.projectManager) {
+        const activeSlug = this.projectManager.getActive();
+        if (activeSlug && scope !== 'global') {
+          const projectMemory = this.projectManager.getActiveMemory();
+          content = await projectMemory.load(key);
+          if (content !== null) resolvedScope = 'project';
+        }
+      }
+
+      // Fall back to global memory
+      if (content === null && scope !== 'project') {
+        content = await this.persistentMemory.load(key);
+        resolvedScope = 'global';
+      }
+
       if (content === null) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Memory key not found' }));
         return;
       }
-      this._json(res, { key, content });
+      this._json(res, { key, content, scope: resolvedScope });
     } catch {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to load memory' }));
@@ -194,14 +230,19 @@ export class DashboardServer extends HealthServer {
 
   async _apiWorkspaceState(req, res) {
     if (!this.persistentMemory) {
-      this._json(res, { project_state: null, decision_journal: null, session_log: null });
+      this._json(res, { active_project: null, project_state: null, decision_journal: null, session_log: null });
       return;
     }
-    const load = (key) => this.persistentMemory.load(key).catch(() => null);
+    // Use project-scoped memory when a project is active
+    const activeSlug = this.projectManager ? this.projectManager.getActive() : null;
+    const memory = activeSlug
+      ? this.projectManager.getActiveMemory()
+      : this.persistentMemory;
+    const load = (key) => memory.load(key).catch(() => null);
     const [project_state, decision_journal, session_log] = await Promise.all([
       load('project_state'), load('decision_journal'), load('session_log'),
     ]);
-    this._json(res, { project_state, decision_journal, session_log });
+    this._json(res, { active_project: activeSlug, project_state, decision_journal, session_log });
   }
 
   _apiTools(req, res) {
@@ -250,6 +291,16 @@ export class DashboardServer extends HealthServer {
       ? this.agentRegistry.list().map(a => ({ name: a.name, description: a.description, model: a.model }))
       : [];
     this._json(res, agents);
+  }
+
+  _apiProjects(req, res) {
+    if (!this.projectManager) {
+      this._json(res, { active: null, projects: [] });
+      return;
+    }
+    const active = this.projectManager.getActive();
+    const projects = this.projectManager.list();
+    this._json(res, { active, projects });
   }
 
   _safeConfig() {

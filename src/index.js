@@ -301,6 +301,7 @@ async function main() {
           scheduler: null, // Set after scheduler is created
           agentRegistry,
           persistentMemory,
+          projectManager,
           conversationMemory,
         });
         await dashboardServer.start();

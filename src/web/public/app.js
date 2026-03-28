@@ -97,8 +97,12 @@ const pages = {
 
   async project() {
     const data = await api('/api/workspace-state');
+    const projectLabel = data.active_project
+      ? `<span class="badge badge-ok">${esc(data.active_project)}</span>`
+      : '<span class="badge badge-warn">none</span>';
     content.innerHTML = `
       <h2>Project State</h2>
+      <p>Active project: ${projectLabel}</p>
       ${renderCard('Project State', data.project_state)}
       ${renderCard('Decision Journal', data.decision_journal)}
       ${renderCard('Session Log', data.session_log)}`;
@@ -163,25 +167,34 @@ const pages = {
   },
 
   async memory() {
-    const keys = await api('/api/memory');
+    const entries = await api('/api/memory');
     content.innerHTML = `
-      <h2>Memory (${(keys || []).length} keys)</h2>
-      ${(!keys || keys.length === 0) ? '<p class="muted">No memories stored yet.</p>' : ''}
+      <h2>Memory (${(entries || []).length} keys)</h2>
+      ${(!entries || entries.length === 0) ? '<p class="muted">No memories stored yet.</p>' : ''}
       <div class="memory-list">
-        ${(keys || []).map(k => `
-          <div class="memory-item clickable-row" data-nav="memoryDetail" data-nav-args='${esc(JSON.stringify([k]))}'>
-            <span class="memory-key">${esc(k)}</span>
-            ${WS_KEYS.includes(k) ? '<span class="badge badge-ok">workspace</span>' : ''}
-          </div>
-        `).join('')}
+        ${(entries || []).map(e => {
+          const key = typeof e === 'string' ? e : e.key;
+          const scope = typeof e === 'string' ? 'global' : (e.scope || 'global');
+          const scopeParam = scope === 'project' ? '?scope=project' : '';
+          return `
+          <div class="memory-item clickable-row" data-nav="memoryDetail" data-nav-args='${esc(JSON.stringify([key, scope]))}'>
+            <span class="memory-key">${esc(key)}</span>
+            ${WS_KEYS.includes(key) ? '<span class="badge badge-ok">workspace</span>' : ''}
+            ${scope === 'project' ? `<span class="badge badge-warn">project: ${esc(e.project)}</span>` : '<span class="badge">global</span>'}
+          </div>`;
+        }).join('')}
       </div>`;
   },
 
-  async memoryDetail(key) {
-    const data = await api(`/api/memory/${encodeURIComponent(key)}`);
+  async memoryDetail(key, scope) {
+    const scopeParam = scope === 'project' ? '?scope=project' : '';
+    const data = await api(`/api/memory/${encodeURIComponent(key)}${scopeParam}`);
+    const scopeBadge = data && data.scope === 'project'
+      ? '<span class="badge badge-warn">project</span>'
+      : '<span class="badge">global</span>';
     content.innerHTML = `
       <a href="#" class="back-link" data-nav="memory">← Back to Memory</a>
-      <h2>Memory: ${esc(key)}</h2>
+      <h2>Memory: ${esc(key)} ${scopeBadge}</h2>
       <div class="card">
         ${data ? `<pre class="memory-content">${esc(data.content)}</pre>` : '<p class="muted">Memory key not found.</p>'}
       </div>`;

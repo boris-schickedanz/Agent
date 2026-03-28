@@ -129,7 +129,7 @@ export class OllamaProvider extends LLMProvider {
                 accumulated.toolCalls[idx] = { id: tc.id || '', function: { name: '', arguments: '' } };
               }
               if (tc.id) accumulated.toolCalls[idx].id = tc.id;
-              if (tc.function?.name) accumulated.toolCalls[idx].function.name += tc.function.name;
+              if (tc.function?.name) accumulated.toolCalls[idx].function.name = tc.function.name;
               if (tc.function?.arguments) accumulated.toolCalls[idx].function.arguments += tc.function.arguments;
             }
           }
