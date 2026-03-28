@@ -78,14 +78,22 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | A4 | Unknown agent | `/agent nonexistent` | Error: "Agent profile not found" | CommandRouter, AgentRegistry | No |
 | A5 | Agent tool whitelist | Message after `/agent coder` | Only tools in profile's whitelist are available | HostDispatcher, ToolPolicy | No |
 
-### 2.7 Skills
+### 2.7 Model Switching
+
+| # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
+|---|----------|---------|-------------------|------------|------------|
+| L1 | Show current model | `/model` | Displays the active LLM model name | CommandRouter, LLMProvider | Yes (model-command) |
+| L2 | Switch model | `/model qwen2` | Model switched, confirmation with old → new names | CommandRouter, LLMProvider | Yes (model-command) |
+| L3 | Switch model (no provider) | `/model` when llmProvider unavailable | Error: "LLM provider is not available" | CommandRouter | Yes (model-command) |
+
+### 2.8 Skills
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
 | K1 | Trigger skill | `/weather London` | Skill instructions injected into system prompt, LLM uses skill tools | SkillLoader, HostDispatcher, PromptBuilder | Partial (pipeline-e2e checks matching) |
 | K2 | Skill not found | `/unknown` | No skill matches → message passed to LLM as-is | HostDispatcher | Implicit |
 
-### 2.8 Security & Permissions
+### 2.9 Security & Permissions
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -98,7 +106,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | P7 | Admin bypasses approval | Admin invokes write tool | Tool executes immediately, no approval prompt | ApprovalManager | Yes (approval-flow) |
 | P8 | Sandbox violation | Agent tries to access file outside workspace | "Path is outside the workspace" error | Sandbox | Yes (sandbox) |
 
-### 2.9 Scheduling
+### 2.10 Scheduling
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -106,7 +114,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | T2 | Overlapping task skipped | Task still running when next tick fires | Skip logged, no duplicate execution | TaskScheduler | Partial (heartbeat-runner) |
 | T3 | Task result delivery | Scheduled task completes | Result should be deliverable to a user/channel | TaskScheduler, Adapter | No (possible feature gap) |
 
-### 2.10 Telegram-Specific
+### 2.11 Telegram-Specific
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -121,14 +129,14 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | TG9 | Inline keyboard callback | User taps inline button | Callback data processed as message | TelegramAdapter, normalizeCallbackQuery | No |
 | TG10 | Markdown parse failure | Response has invalid Markdown | Fallback to plain text | TelegramAdapter._flushEdit | No |
 
-### 2.11 Cross-Adapter
+### 2.12 Cross-Adapter
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
 | X1 | Same user, different adapters | User talks via console then Telegram | Same canonical session if aliases configured | SessionManager, user_aliases | No |
 | X2 | Outbound routing | Response to Telegram user | Message routed to correct adapter by channelId | AdapterRegistry, EventBus | Yes (pipeline-e2e) |
 
-### 2.12 Error Recovery
+### 2.13 Error Recovery
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
@@ -149,15 +157,16 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | Memory & Knowledge | 4 | 0 | 4 | 0 |
 | Delegation | 4 | 4 | 0 | 0 |
 | Agent Profiles | 5 | 0 | 0 | 5 |
+| Model Switching | 3 | 3 | 0 | 0 |
 | Skills | 2 | 0 | 2 | 0 |
 | Security & Permissions | 8 | 3 | 0 | 5 |
 | Scheduling | 3 | 0 | 2 | 1 |
 | Telegram-Specific | 10 | 1 | 1 | 8 |
 | Cross-Adapter | 2 | 1 | 0 | 1 |
 | Error Recovery | 4 | 1 | 3 | 0 |
-| **Total** | **58** | **20** | **14** | **24** |
+| **Total** | **61** | **23** | **14** | **24** |
 
-**34% fully tested, 24% partially tested, 41% not tested.**
+**38% fully tested, 23% partially tested, 39% not tested.**
 
 ---
 

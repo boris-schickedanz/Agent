@@ -49,6 +49,10 @@ export class CommandRouter {
       return this._handleAgent(sanitizedMessage, content);
     }
 
+    if (content === '/model' || content.startsWith('/model ')) {
+      return this._handleModel(sanitizedMessage, content);
+    }
+
     return { handled: false };
   }
 
@@ -121,6 +125,26 @@ export class CommandRouter {
     session.metadata.agentName = agentName;
 
     this._respond(message, `Switched to agent: **${profile.name}** — ${profile.description}`);
+    return { handled: true };
+  }
+
+  _handleModel(message, content) {
+    if (!this.llmProvider) {
+      this._respond(message, 'LLM provider is not available.');
+      return { handled: true };
+    }
+
+    const arg = content.slice('/model'.length).trim();
+
+    if (!arg) {
+      const current = this.llmProvider.getModel();
+      this._respond(message, `Current model: **${current || 'unknown'}**`);
+      return { handled: true };
+    }
+
+    const previous = this.llmProvider.getModel();
+    this.llmProvider.setModel(arg);
+    this._respond(message, `Model switched from **${previous}** to **${arg}**.`);
     return { handled: true };
   }
 
