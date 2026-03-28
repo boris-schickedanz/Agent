@@ -11,23 +11,20 @@ async function api(path) {
   return res.json();
 }
 
+const _escEl = document.createElement('div');
 function esc(str) {
   if (str == null) return '';
-  const d = document.createElement('div');
-  d.textContent = String(str);
-  return d.innerHTML;
+  _escEl.textContent = String(str);
+  return _escEl.innerHTML;
 }
 
-function badge(status) {
-  const cls = status === 'healthy' || status === 'ok' || status === 'admin' ? 'badge-ok'
-    : status === 'degraded' || status === 'user' ? 'badge-warn' : 'badge-err';
-  return `<span class="badge ${cls}">${esc(status)}</span>`;
+function badge(label, colorMap) {
+  const defaults = { healthy: 'badge-ok', ok: 'badge-ok', admin: 'badge-ok', degraded: 'badge-warn', user: 'badge-warn' };
+  const cls = (colorMap || defaults)[label] || 'badge-err';
+  return `<span class="badge ${cls}">${esc(label)}</span>`;
 }
 
-function roleBadge(role) {
-  const colors = { user: 'badge-role-user', assistant: 'badge-role-assistant', system: 'badge-role-system' };
-  return `<span class="badge ${colors[role] || 'badge-warn'}">${esc(role)}</span>`;
-}
+const ROLE_COLORS = { user: 'badge-role-user', assistant: 'badge-role-assistant', system: 'badge-role-system' };
 
 function formatDate(ts) {
   if (!ts) return '—';
@@ -35,10 +32,10 @@ function formatDate(ts) {
   return d.toLocaleString();
 }
 
-function formatContent(content) {
-  if (typeof content === 'string') return esc(content);
-  if (Array.isArray(content)) {
-    return content.map(block => {
+function formatContent(c) {
+  if (typeof c === 'string') return esc(c);
+  if (Array.isArray(c)) {
+    return c.map(block => {
       if (block.type === 'text') return esc(block.text);
       if (block.type === 'tool_use') return `<div class="tool-call"><strong>${esc(block.name)}</strong><pre>${esc(JSON.stringify(block.input, null, 2))}</pre></div>`;
       if (block.type === 'tool_result') {
@@ -48,10 +45,14 @@ function formatContent(content) {
       return `<pre>${esc(JSON.stringify(block, null, 2))}</pre>`;
     }).join('');
   }
-  return `<pre>${esc(JSON.stringify(content, null, 2))}</pre>`;
+  return `<pre>${esc(JSON.stringify(c, null, 2))}</pre>`;
 }
 
-// Navigate to a page (used by clickable elements)
+function renderCard(title, body) {
+  if (!body) return `<div class="card"><h3>${esc(title)}</h3><p class="muted">Not initialized</p></div>`;
+  return `<div class="card"><h3>${esc(title)}</h3><pre class="memory-content">${esc(body)}</pre></div>`;
+}
+
 function navigate(page, ...args) {
   navLinks.forEach(l => l.classList.remove('active'));
   const link = document.querySelector(`nav a[data-page="${page}"]`);
@@ -60,6 +61,18 @@ function navigate(page, ...args) {
     content.innerHTML = `<h2>Error</h2><p>${esc(err.message)}</p>`;
   });
 }
+
+// Delegated click handler for data-nav elements (avoids inline onclick XSS)
+content.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-nav]');
+  if (!el) return;
+  e.preventDefault();
+  const nav = el.dataset.nav;
+  const args = el.dataset.navArgs ? JSON.parse(el.dataset.navArgs) : [];
+  navigate(nav, ...args);
+});
+
+const WS_KEYS = ['project_state', 'decision_journal', 'session_log'];
 
 // Pages
 const pages = {
@@ -84,15 +97,11 @@ const pages = {
 
   async project() {
     const data = await api('/api/workspace-state');
-    const renderCard = (title, key, content) => {
-      if (!content) return `<div class="card"><h3>${esc(title)}</h3><p class="muted">Not initialized</p></div>`;
-      return `<div class="card"><h3>${esc(title)}</h3><pre class="memory-content">${esc(content)}</pre></div>`;
-    };
     content.innerHTML = `
       <h2>Project State</h2>
-      ${renderCard('Project State', 'project_state', data.project_state)}
-      ${renderCard('Decision Journal', 'decision_journal', data.decision_journal)}
-      ${renderCard('Session Log', 'session_log', data.session_log)}`;
+      ${renderCard('Project State', data.project_state)}
+      ${renderCard('Decision Journal', data.decision_journal)}
+      ${renderCard('Session Log', data.session_log)}`;
   },
 
   async sessions() {
@@ -102,7 +111,7 @@ const pages = {
       <table>
         <thead><tr><th>ID</th><th>User</th><th>Channel</th><th>Last Activity</th></tr></thead>
         <tbody>
-          ${data.map(s => `<tr class="clickable-row" onclick="navigate('sessionDetail', '${esc(s.id)}')"><td>${esc(s.id)}</td><td>${esc(s.user_id)}</td><td>${esc(s.channel_id)}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
+          ${data.map(s => `<tr class="clickable-row" data-nav="sessionDetail" data-nav-args='${esc(JSON.stringify([s.id]))}'><td>${esc(s.id)}</td><td>${esc(s.user_id)}</td><td>${esc(s.channel_id)}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
@@ -112,7 +121,7 @@ const pages = {
     const msgHtml = (messages || []).map(m => `
       <div class="message message-${esc(m.role)}">
         <div class="message-header">
-          ${roleBadge(m.role)}
+          ${badge(m.role, ROLE_COLORS)}
           <span class="message-time">${formatDate(m.created_at)}</span>
           ${m.token_estimate ? `<span class="muted">${m.token_estimate} tokens</span>` : ''}
         </div>
@@ -121,7 +130,7 @@ const pages = {
     `).join('');
 
     content.innerHTML = `
-      <a href="#" class="back-link" onclick="event.preventDefault(); navigate('sessions')">← Back to Sessions</a>
+      <a href="#" class="back-link" data-nav="sessions">← Back to Sessions</a>
       <h2>Session: ${esc(sessionId)}</h2>
       <p class="muted">${(messages || []).length} messages</p>
       <div class="message-list">${msgHtml || '<p class="muted">No messages in this session.</p>'}</div>`;
@@ -134,37 +143,35 @@ const pages = {
       <table>
         <thead><tr><th>ID</th><th>Channel</th><th>Name</th><th>Role</th><th>Created</th></tr></thead>
         <tbody>
-          ${data.map(u => `<tr class="clickable-row" onclick="navigate('userDetail', '${esc(u.id)}', '${esc(u.display_name || u.id)}')"><td>${esc(u.id)}</td><td>${esc(u.channel_id)}</td><td>${esc(u.display_name || '—')}</td><td>${badge(u.role)}</td><td>${formatDate(u.created_at)}</td></tr>`).join('')}
+          ${data.map(u => `<tr class="clickable-row" data-nav="userDetail" data-nav-args='${esc(JSON.stringify([u.id, u.display_name || u.id]))}'><td>${esc(u.id)}</td><td>${esc(u.channel_id)}</td><td>${esc(u.display_name || '—')}</td><td>${badge(u.role)}</td><td>${formatDate(u.created_at)}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
 
   async userDetail(userId, displayName) {
-    const allSessions = await api('/api/sessions');
-    const userSessions = (allSessions || []).filter(s => s.user_id === userId);
+    const sessions = await api(`/api/sessions?user_id=${encodeURIComponent(userId)}`);
     content.innerHTML = `
-      <a href="#" class="back-link" onclick="event.preventDefault(); navigate('users')">← Back to Users</a>
+      <a href="#" class="back-link" data-nav="users">← Back to Users</a>
       <h2>User: ${esc(displayName || userId)}</h2>
-      <p class="muted">${userSessions.length} sessions</p>
+      <p class="muted">${(sessions || []).length} sessions</p>
       <table>
         <thead><tr><th>Session ID</th><th>Channel</th><th>Last Activity</th></tr></thead>
         <tbody>
-          ${userSessions.map(s => `<tr class="clickable-row" onclick="navigate('sessionDetail', '${esc(s.id)}')"><td>${esc(s.id)}</td><td>${esc(s.channel_id)}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
+          ${(sessions || []).map(s => `<tr class="clickable-row" data-nav="sessionDetail" data-nav-args='${esc(JSON.stringify([s.id]))}'><td>${esc(s.id)}</td><td>${esc(s.channel_id)}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
 
   async memory() {
     const keys = await api('/api/memory');
-    const wsKeys = ['project_state', 'decision_journal', 'session_log'];
     content.innerHTML = `
       <h2>Memory (${(keys || []).length} keys)</h2>
       ${(!keys || keys.length === 0) ? '<p class="muted">No memories stored yet.</p>' : ''}
       <div class="memory-list">
         ${(keys || []).map(k => `
-          <div class="memory-item clickable-row" onclick="navigate('memoryDetail', '${esc(k)}')">
+          <div class="memory-item clickable-row" data-nav="memoryDetail" data-nav-args='${esc(JSON.stringify([k]))}'>
             <span class="memory-key">${esc(k)}</span>
-            ${wsKeys.includes(k) ? '<span class="badge badge-ok">workspace</span>' : ''}
+            ${WS_KEYS.includes(k) ? '<span class="badge badge-ok">workspace</span>' : ''}
           </div>
         `).join('')}
       </div>`;
@@ -173,7 +180,7 @@ const pages = {
   async memoryDetail(key) {
     const data = await api(`/api/memory/${encodeURIComponent(key)}`);
     content.innerHTML = `
-      <a href="#" class="back-link" onclick="event.preventDefault(); navigate('memory')">← Back to Memory</a>
+      <a href="#" class="back-link" data-nav="memory">← Back to Memory</a>
       <h2>Memory: ${esc(key)}</h2>
       <div class="card">
         ${data ? `<pre class="memory-content">${esc(data.content)}</pre>` : '<p class="muted">Memory key not found.</p>'}

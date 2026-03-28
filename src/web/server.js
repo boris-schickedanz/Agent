@@ -125,9 +125,18 @@ export class DashboardServer extends HealthServer {
 
   _apiSessions(req, res) {
     try {
-      const sessions = this.db.prepare(
-        'SELECT id, user_id, channel_id, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 50'
-      ).all();
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      const userId = params.get('user_id');
+      let sessions;
+      if (userId) {
+        sessions = this.db.prepare(
+          'SELECT id, user_id, channel_id, updated_at FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50'
+        ).all(userId);
+      } else {
+        sessions = this.db.prepare(
+          'SELECT id, user_id, channel_id, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 50'
+        ).all();
+      }
       this._json(res, sessions);
     } catch {
       this._json(res, []);
@@ -139,12 +148,11 @@ export class DashboardServer extends HealthServer {
       const messages = this.db.prepare(
         'SELECT role, content, token_estimate, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 200'
       ).all(sessionId);
-      const parsed = messages.map(m => ({
-        role: m.role,
-        content: this._tryParseJson(m.content),
-        token_estimate: m.token_estimate,
-        created_at: m.created_at,
-      }));
+      const parsed = messages.map(m => {
+        let content = m.content;
+        try { content = JSON.parse(content); } catch { /* keep as string */ }
+        return { role: m.role, content, token_estimate: m.token_estimate, created_at: m.created_at };
+      });
       this._json(res, parsed);
     } catch {
       this._json(res, []);
@@ -189,14 +197,11 @@ export class DashboardServer extends HealthServer {
       this._json(res, { project_state: null, decision_journal: null, session_log: null });
       return;
     }
-    const load = async (key) => {
-      try { return await this.persistentMemory.load(key); } catch { return null; }
-    };
-    this._json(res, {
-      project_state: await load('project_state'),
-      decision_journal: await load('decision_journal'),
-      session_log: await load('session_log'),
-    });
+    const load = (key) => this.persistentMemory.load(key).catch(() => null);
+    const [project_state, decision_journal, session_log] = await Promise.all([
+      load('project_state'), load('decision_journal'), load('session_log'),
+    ]);
+    this._json(res, { project_state, decision_journal, session_log });
   }
 
   _apiTools(req, res) {
@@ -262,9 +267,5 @@ export class DashboardServer extends HealthServer {
   _json(res, data) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
-  }
-
-  _tryParseJson(str) {
-    try { return JSON.parse(str); } catch { return str; }
   }
 }
