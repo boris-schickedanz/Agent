@@ -91,6 +91,39 @@ describe('OllamaProvider', () => {
     });
   });
 
+  describe('streamMessage() tool call accumulation', () => {
+    let originalFetch;
+
+    beforeEach(() => { originalFetch = globalThis.fetch; });
+    afterEach(() => { globalThis.fetch = originalFetch; });
+
+    it('does not concatenate tool names across repeated SSE chunks', async () => {
+      // Simulate two SSE chunks that both carry the full tool name (common with Ollama/OpenAI)
+      const chunks = [
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'http_get', arguments: '{"ur' } }] } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'http_get', arguments: 'l":"x"}' } }] } }] },
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      ];
+      const lines = chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).concat('data: [DONE]\n\n');
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({
+        start(controller) {
+          for (const line of lines) controller.enqueue(encoder.encode(line));
+          controller.close();
+        },
+      });
+      globalThis.fetch = mock.fn(async () => ({ ok: true, body }));
+
+      const provider = makeProvider();
+      const result = await provider.streamMessage('system', [], [{ name: 'http_get', description: 'fetch', input_schema: { type: 'object' } }], () => {});
+
+      const toolBlock = result.content.find(b => b.type === 'tool_use');
+      assert.ok(toolBlock, 'expected a tool_use block');
+      assert.equal(toolBlock.name, 'http_get', 'tool name must not be concatenated');
+      assert.deepStrictEqual(toolBlock.input, { url: 'x' });
+    });
+  });
+
   describe('streamMessage() auth header', () => {
     let originalFetch;
 
