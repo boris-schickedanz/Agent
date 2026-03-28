@@ -40,6 +40,7 @@ Specs for the coding companion capabilities. All implemented.
 | [25 — Boot Resilience](25-boot-resilience.md) | Retry logic for `container system start` on boot; `ThrottleInterval` in launchd plist to survive post-reboot timing |
 | [26 — Model Switch Command](26-model-switch-command.md) | `/model` command to display or switch the active LLM model at runtime |
 | [27 — Command Context Persistence](27-command-context-persistence.md) | Persist `/model` and `/agent` command exchanges to history; include active model in system prompt |
+| [28 — Lean System Prompt & Dynamic Tool Resolution](28-lean-system-prompt.md) | Two-tier tool resolution (core vs deferred), meta-tools (get_tool_details, get_agent_info), system prompt optimization |
 | [Use Cases & PRD](PRD-Use-Cases.md) | Complete user-facing use case inventory, personas, E2E test coverage tracking |
 
 ## Archived
