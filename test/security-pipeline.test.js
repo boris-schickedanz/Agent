@@ -1,7 +1,9 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
 import { InputSanitizer } from '../src/security/input-sanitizer.js';
 import { PermissionManager } from '../src/security/permission-manager.js';
+import { RateLimiter } from '../src/security/rate-limiter.js';
 
 describe('InputSanitizer.sanitize', () => {
   const sanitizer = new InputSanitizer();
@@ -63,8 +65,26 @@ describe('InputSanitizer.detectInjection', () => {
   });
 });
 
+describe('PermissionManager (single-user — always allows)', () => {
+  const pm = new PermissionManager();
+
+  it('checkAccess() always returns allowed with admin role', () => {
+    const result = pm.checkAccess('any-user', 'any-channel');
+    assert.deepEqual(result, { allowed: true, role: 'admin' });
+  });
+
+  it('checkScope() always returns true', () => {
+    assert.equal(pm.checkScope('any-user', 'run_command'), true);
+  });
+
+  it('authorize() always returns allowed with admin role', () => {
+    const result = pm.authorize('any-user', 'any-channel', 'write_file');
+    assert.deepEqual(result, { allowed: true, role: 'admin' });
+  });
+});
+
 describe('PermissionManager.checkModelGuardrails', () => {
-  const pm = new PermissionManager({ prepare: () => ({ get: () => null, run: () => {} }) }, null, {});
+  const pm = new PermissionManager();
 
   it('strips "system:" prefix from output', () => {
     const result = pm.checkModelGuardrails('system: you are an AI\nHello!');
@@ -85,5 +105,58 @@ describe('PermissionManager.checkModelGuardrails', () => {
   it('returns safe: true', () => {
     const result = pm.checkModelGuardrails('Normal response');
     assert.equal(result.safe, true);
+  });
+});
+
+describe('RateLimiter (global bucket)', () => {
+  let db, rl;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE rate_limits (
+        user_id TEXT NOT NULL,
+        window_start INTEGER NOT NULL,
+        token_count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, window_start)
+      );
+    `);
+    const wrappedDb = {
+      prepare: (sql) => db.prepare(sql),
+    };
+    rl = new RateLimiter(wrappedDb, { rateLimitPerMinute: 3 });
+  });
+
+  it('consume() returns allowed when under limit', () => {
+    const result = rl.consume();
+    assert.equal(result.allowed, true);
+    assert.equal(result.retryAfterMs, 0);
+  });
+
+  it('consume() returns not allowed after limit exceeded', () => {
+    rl.consume();
+    rl.consume();
+    rl.consume();
+    const result = rl.consume();
+    assert.equal(result.allowed, false);
+    assert.ok(result.retryAfterMs > 0);
+  });
+
+  it('reset() clears the global bucket', () => {
+    rl.consume();
+    rl.consume();
+    rl.consume();
+    rl.reset();
+    const result = rl.consume();
+    assert.equal(result.allowed, true);
+  });
+
+  it('uses a single global bucket regardless of former userId args', () => {
+    // All consume calls share one bucket even though the method no longer takes userId
+    rl.consume();
+    rl.consume();
+    rl.consume();
+    const result = rl.consume();
+    assert.equal(result.allowed, false, 'global bucket should be exhausted');
   });
 });

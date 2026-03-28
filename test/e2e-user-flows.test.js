@@ -60,7 +60,7 @@ function makeLLMProviderWithToolUse(toolName, toolInput, finalText = 'Done!') {
 
 /**
  * Build a near-complete pipeline with real security components.
- * Only the LLM provider is mocked.
+ * Single-user model: no role checks, global rate limiter, approval workflow for safety.
  */
 function buildPipeline(db, config = {}) {
   const eventBus = new EventEmitter();
@@ -72,8 +72,8 @@ function buildPipeline(db, config = {}) {
   });
 
   const approvalManager = new ApprovalManager({ db, eventBus, auditLogger: null, logger });
-  const toolPolicy = new ToolPolicy(db, config, approvalManager);
-  const permissionManager = new PermissionManager(db, toolPolicy, config);
+  const toolPolicy = new ToolPolicy();
+  const permissionManager = new PermissionManager();
   const inputSanitizer = new InputSanitizer();
 
   const toolRegistry = new ToolRegistry();
@@ -114,7 +114,7 @@ function buildPipeline(db, config = {}) {
   const messageQueue = new MessageQueue(runner, logger);
 
   const sessionManager = {
-    resolveSessionId: (msg) => msg.sessionId || `user:${msg.userId}`,
+    resolveSessionId: () => 'user:default',
     getOrCreate: (sid, uid, cid, uname) => ({
       id: sid, userId: uid, channelId: cid, userName: uname,
       metadata: {}, lastUserMessage: null,
@@ -144,28 +144,15 @@ function buildPipeline(db, config = {}) {
     approvalManager,
   });
 
-  // Simulate the full inbound handler from index.js (lines 192-268)
+  // Simulate the full inbound handler from index.js (single-user pipeline)
   async function processMessage(message) {
-    const rateCheck = rateLimiter.consume(message.userId);
+    const rateCheck = rateLimiter.consume();
     if (!rateCheck.allowed) {
       eventBus.emit('message:outbound', {
         sessionId: message.sessionId,
         channelId: message.channelId,
         userId: message.userId,
         content: `Rate limit exceeded. Please wait ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.`,
-        replyTo: message.id,
-        metadata: { toolsUsed: [], tokenUsage: { inputTokens: 0, outputTokens: 0 }, processingTimeMs: 0 },
-      });
-      return;
-    }
-
-    const accessCheck = permissionManager.checkAccess(message.userId, message.channelId);
-    if (!accessCheck.allowed) {
-      eventBus.emit('message:outbound', {
-        sessionId: message.sessionId,
-        channelId: message.channelId,
-        userId: message.userId,
-        content: `Access denied: ${accessCheck.reason}`,
         replyTo: message.id,
         metadata: { toolsUsed: [], tokenUsage: { inputTokens: 0, outputTokens: 0 }, processingTimeMs: 0 },
       });
@@ -191,10 +178,10 @@ function buildPipeline(db, config = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// P0: Security flows (PRD §2.8 — P1, P2, P3, P4)
+// Single-user: any message gets a response (no role checks)
 // ---------------------------------------------------------------------------
 
-describe('E2E: New user first message (PRD P1)', () => {
+describe('E2E: Single-user first message', () => {
   let db;
 
   beforeEach(async () => {
@@ -207,113 +194,29 @@ describe('E2E: New user first message (PRD P1)', () => {
     try { unlinkSync(TEST_DB); } catch {}
   });
 
-  it('unknown user with AUTO_APPROVE_USERS=false → registered as pending → gets response', async () => {
-    const { processMessage, outbound } = buildPipeline(db, { autoApproveUsers: false });
-
-    await processMessage({
-      id: 'msg-1', sessionId: 'telegram:12345', channelId: 'telegram',
-      userId: 'newuser1', userName: 'New User', content: 'Hello',
-    });
-
-    // User should be auto-registered as pending
-    const row = db.prepare('SELECT role FROM users WHERE id = ?').get('newuser1');
-    assert.equal(row.role, 'pending');
-
-    // Should still get a response (agent can respond, just with minimal tools)
-    assert.equal(outbound.length, 1);
-    assert.ok(outbound[0].content.length > 0);
-  });
-
-  it('unknown user with AUTO_APPROVE_USERS=true → registered as user', async () => {
-    const { processMessage, outbound } = buildPipeline(db, { autoApproveUsers: true });
-
-    await processMessage({
-      id: 'msg-1', sessionId: 'telegram:12345', channelId: 'telegram',
-      userId: 'newuser2', userName: 'New User', content: 'Hello',
-    });
-
-    const row = db.prepare('SELECT role FROM users WHERE id = ?').get('newuser2');
-    assert.equal(row.role, 'user');
-    assert.equal(outbound.length, 1);
-  });
-
-  it('unknown user in AUTO_APPROVE_USERS list → registered as user', async () => {
-    const { processMessage } = buildPipeline(db, { autoApproveUsers: ['vip1', 'vip2'] });
-
-    await processMessage({
-      id: 'msg-1', sessionId: 'telegram:12345', channelId: 'telegram',
-      userId: 'vip1', userName: 'VIP', content: 'Hello',
-    });
-
-    const row = db.prepare('SELECT role FROM users WHERE id = ?').get('vip1');
-    assert.equal(row.role, 'user');
-  });
-});
-
-describe('E2E: Blocked user (PRD P2)', () => {
-  let db;
-
-  beforeEach(async () => {
-    db = DB.getInstance(TEST_DB);
-    await db.migrate();
-    db.prepare('INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?)').run('blocked1', 'telegram', 'blocked');
-  });
-
-  afterEach(() => {
-    db.close();
-    try { unlinkSync(TEST_DB); } catch {}
-  });
-
-  it('blocked user gets access denied response', async () => {
+  it('any user gets an immediate response with all tools available', async () => {
     const { processMessage, outbound } = buildPipeline(db);
 
     await processMessage({
-      id: 'msg-1', sessionId: 'telegram:blocked1', channelId: 'telegram',
-      userId: 'blocked1', userName: 'Blocked', content: 'Hello',
+      id: 'msg-1', sessionId: 'user:default', channelId: 'telegram',
+      userId: 'newuser1', userName: 'New User', content: 'Hello',
     });
 
     assert.equal(outbound.length, 1);
-    assert.ok(outbound[0].content.includes('Access denied'));
+    assert.ok(outbound[0].content.length > 0);
   });
 });
 
-describe('E2E: Pending user tool access (PRD P3)', () => {
+// ---------------------------------------------------------------------------
+// Rate limiting (global bucket)
+// ---------------------------------------------------------------------------
+
+describe('E2E: Global rate limiting', () => {
   let db;
 
   beforeEach(async () => {
     db = DB.getInstance(TEST_DB);
     await db.migrate();
-    db.prepare('INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?)').run('pending1', 'telegram', 'pending');
-  });
-
-  afterEach(() => {
-    db.close();
-    try { unlinkSync(TEST_DB); } catch {}
-  });
-
-  it('pending user gets minimal tool set (only get_current_time)', async () => {
-    // Use an LLM that tries to call read_file
-    const { processMessage, outbound } = buildPipeline(db, {
-      llmProvider: makeLLMProviderWithToolUse('read_file', { path: 'test.txt' }, 'Could not read file'),
-    });
-
-    await processMessage({
-      id: 'msg-1', sessionId: 'telegram:pending1', channelId: 'telegram',
-      userId: 'pending1', userName: 'Pending', content: 'Read file test.txt',
-    });
-
-    // Should get a response (the tool was filtered out by policy, so LLM only sees get_current_time)
-    assert.equal(outbound.length, 1);
-  });
-});
-
-describe('E2E: Rate limiting (PRD P4)', () => {
-  let db;
-
-  beforeEach(async () => {
-    db = DB.getInstance(TEST_DB);
-    await db.migrate();
-    db.prepare('INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?)').run('user1', 'telegram', 'user');
   });
 
   afterEach(() => {
@@ -325,7 +228,7 @@ describe('E2E: Rate limiting (PRD P4)', () => {
     const { processMessage, outbound } = buildPipeline(db, { rateLimitPerMinute: 2 });
 
     const msg = (id) => ({
-      id, sessionId: 'telegram:user1', channelId: 'telegram',
+      id, sessionId: 'user:default', channelId: 'telegram',
       userId: 'user1', userName: 'User', content: 'Hello',
     });
 
@@ -337,16 +240,14 @@ describe('E2E: Rate limiting (PRD P4)', () => {
     await processMessage(msg('3'));
 
     assert.equal(outbound.length, 3);
-    // First two are normal responses
     assert.ok(!outbound[0].content.includes('Rate limit'));
     assert.ok(!outbound[1].content.includes('Rate limit'));
-    // Third is rate limited
     assert.ok(outbound[2].content.includes('Rate limit exceeded'));
   });
 });
 
 // ---------------------------------------------------------------------------
-// P0: Telegram attachments (PRD §2.10 — TG4, TG5, TG6)
+// Telegram attachments (PRD §2.10 — TG4, TG5, TG6)
 // ---------------------------------------------------------------------------
 
 describe('E2E: Telegram attachment normalization (PRD TG4-TG6)', () => {
@@ -453,7 +354,7 @@ describe('E2E: Telegram attachment normalization (PRD TG4-TG6)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P1: Telegram group vs private session isolation (PRD TG2)
+// Telegram group vs private session isolation (PRD TG2)
 // ---------------------------------------------------------------------------
 
 describe('E2E: Telegram group vs private session isolation (PRD TG2)', () => {
@@ -478,7 +379,7 @@ describe('E2E: Telegram group vs private session isolation (PRD TG2)', () => {
     const normalizedGroup = normalizeMessage(groupMsg);
 
     assert.equal(normalizedPrivate.sessionId, 'telegram:12345');
-    assert.equal(normalizedGroup.sessionId, 'telegram:group:-67890');
+    assert.equal(normalizedGroup.sessionId, 'telegram:-67890');
     assert.notEqual(normalizedPrivate.sessionId, normalizedGroup.sessionId);
     // Same userId
     assert.equal(normalizedPrivate.userId, normalizedGroup.userId);
@@ -486,7 +387,7 @@ describe('E2E: Telegram group vs private session isolation (PRD TG2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P1: Approval flow through full security pipeline (PRD P5)
+// Approval flow through full security pipeline (PRD P5)
 // ---------------------------------------------------------------------------
 
 describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
@@ -495,7 +396,6 @@ describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
   beforeEach(async () => {
     db = DB.getInstance(TEST_DB);
     await db.migrate();
-    db.prepare('INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?)').run('user1', 'telegram', 'user');
   });
 
   afterEach(() => {
@@ -503,14 +403,14 @@ describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
     try { unlinkSync(TEST_DB); } catch {}
   });
 
-  it('non-admin tool call → approval required → /approve → tool executes', async () => {
+  it('write tool call → approval required → /approve → tool executes', async () => {
     const pipeline = buildPipeline(db, {
       llmProvider: makeLLMProviderWithToolUse('write_file', { path: 'test.txt' }, 'File created!'),
     });
 
     // Step 1: User asks to write a file → LLM calls write_file → approval required
     await pipeline.processMessage({
-      id: 'msg-1', sessionId: 'telegram:user1', channelId: 'telegram',
+      id: 'msg-1', sessionId: 'user:default', channelId: 'telegram',
       userId: 'user1', userName: 'User', content: 'Create test.txt',
     });
 
@@ -518,13 +418,13 @@ describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
     assert.ok(pipeline.outbound.length >= 1);
 
     // Step 2: Verify pending approval was stored
-    const pending = pipeline.approvalManager.getPending('telegram:user1');
+    const pending = pipeline.approvalManager.getPending('user:default');
     assert.ok(pending);
     assert.equal(pending.toolName, 'write_file');
 
     // Step 3: User sends /approve
     await pipeline.processMessage({
-      id: 'msg-2', sessionId: 'telegram:user1', channelId: 'telegram',
+      id: 'msg-2', sessionId: 'user:default', channelId: 'telegram',
       userId: 'user1', userName: 'User', content: '/approve',
     });
 
@@ -535,16 +435,15 @@ describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P1: Admin bypasses full pipeline (PRD P7)
+// Admin bypass (single-user: all users are admin)
 // ---------------------------------------------------------------------------
 
-describe('E2E: Admin bypass (PRD P7)', () => {
+describe('E2E: Admin bypass — all tools available (single-user)', () => {
   let db;
 
   beforeEach(async () => {
     db = DB.getInstance(TEST_DB);
     await db.migrate();
-    db.prepare('INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?)').run('admin1', 'console', 'admin');
   });
 
   afterEach(() => {
@@ -552,13 +451,13 @@ describe('E2E: Admin bypass (PRD P7)', () => {
     try { unlinkSync(TEST_DB); } catch {}
   });
 
-  it('admin tool call executes immediately without approval', async () => {
+  it('tool call executes immediately with admin bypass', async () => {
     const { processMessage, outbound } = buildPipeline(db, {
       llmProvider: makeLLMProviderWithToolUse('write_file', { path: 'test.txt' }, 'File created!'),
     });
 
     await processMessage({
-      id: 'msg-1', sessionId: 'console:admin1', channelId: 'console',
+      id: 'msg-1', sessionId: 'user:default', channelId: 'console',
       userId: 'admin1', userName: 'Admin', content: 'Create test.txt',
     });
 
@@ -568,7 +467,7 @@ describe('E2E: Admin bypass (PRD P7)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P1: LLM error recovery (PRD E1)
+// LLM error recovery (PRD E1)
 // ---------------------------------------------------------------------------
 
 describe('E2E: LLM error recovery (PRD E1)', () => {
@@ -577,7 +476,6 @@ describe('E2E: LLM error recovery (PRD E1)', () => {
   beforeEach(async () => {
     db = DB.getInstance(TEST_DB);
     await db.migrate();
-    db.prepare('INSERT INTO users (id, channel_id, role) VALUES (?, ?, ?)').run('user1', 'telegram', 'user');
   });
 
   afterEach(() => {
@@ -594,7 +492,7 @@ describe('E2E: LLM error recovery (PRD E1)', () => {
     });
 
     await processMessage({
-      id: 'msg-1', sessionId: 'telegram:user1', channelId: 'telegram',
+      id: 'msg-1', sessionId: 'user:default', channelId: 'telegram',
       userId: 'user1', userName: 'User', content: 'Hello',
     });
 

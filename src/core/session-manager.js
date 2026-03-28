@@ -16,11 +16,10 @@ export class SessionManager {
 
   /**
    * Resolve the canonical sessionId from a normalized message.
-   * Single-user system: all messages map to one session per adapter channel.
+   * Single-user system: all adapters share one session.
    */
-  resolveSessionId(normalizedMessage) {
-    const { userId, channelId } = normalizedMessage;
-    return `user:${channelId}:${userId}`;
+  resolveSessionId(_normalizedMessage) {
+    return 'user:default';
   }
 
   getOrCreate(sessionId, userId, channelId, userName = null) {

@@ -1,3 +1,5 @@
+const GLOBAL_KEY = 'global';
+
 export class RateLimiter {
   constructor(db, config) {
     this.db = db;
@@ -19,16 +21,14 @@ export class RateLimiter {
   }
 
   /**
-   * Try to consume one token for this user. Returns { allowed, retryAfterMs }.
+   * Try to consume one token from the global rate limit bucket.
    */
-  consume(userId) {
-    const now = Math.floor(Date.now() / 60_000); // Current minute window
+  consume() {
+    const now = Math.floor(Date.now() / 60_000);
 
-    // Periodic cleanup of old windows
     this._stmts.cleanup.run(now - 5);
 
-    // Check current count
-    const row = this._stmts.get.get(userId, now);
+    const row = this._stmts.get.get(GLOBAL_KEY, now);
     const currentCount = row ? row.token_count : 0;
 
     if (currentCount >= this.limit) {
@@ -39,13 +39,12 @@ export class RateLimiter {
       };
     }
 
-    // Consume a token
-    this._stmts.upsert.run(userId, now);
+    this._stmts.upsert.run(GLOBAL_KEY, now);
 
     return { allowed: true, retryAfterMs: 0 };
   }
 
-  reset(userId) {
-    this.db.prepare('DELETE FROM rate_limits WHERE user_id = ?').run(userId);
+  reset() {
+    this.db.prepare('DELETE FROM rate_limits WHERE user_id = ?').run(GLOBAL_KEY);
   }
 }

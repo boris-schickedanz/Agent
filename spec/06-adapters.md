@@ -26,14 +26,14 @@ class AdapterInterface {
 
 ## 3. Normalized Message Format (Universal Contract)
 
-> **Single-user model note:** The PRD declares all adapters share a single conversation history ([PRD §1](PRD-Use-Cases.md)). Currently each adapter produces its own `sessionId` (`{channelId}:{chatId}`), resulting in per-adapter sessions. See [Spec 32](32-single-user-migration.md) for the migration plan.
+All adapters share a single session — `SessionManager.resolveSessionId()` maps all normalized messages to `'user:default'`. The adapter-level `sessionId` field is used for routing but does not determine conversation history.
 
 All adapters MUST normalize inbound messages to this exact shape:
 
 ```js
 {
   id: string,              // Platform message ID
-  sessionId: string,       // Computed: "{channelId}:{chatId}"
+  sessionId: string,       // Adapter-level routing ID (e.g. "{channelId}:{chatId}")
   channelId: string,       // Adapter's channelId
   userId: string,          // Platform user ID (string)
   userName: string,        // Display name
