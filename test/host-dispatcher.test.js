@@ -32,9 +32,9 @@ function makeDispatcher(overrides = {}) {
 }
 
 describe('HostDispatcher.buildRequest', () => {
-  it('produces valid ExecutionRequest shape', () => {
+  it('produces valid ExecutionRequest shape', async () => {
     const dispatcher = makeDispatcher();
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       userName: 'Alice',
@@ -55,7 +55,7 @@ describe('HostDispatcher.buildRequest', () => {
     assert.ok(req.createdAt > 0);
   });
 
-  it('resolves session and loads history', () => {
+  it('resolves session and loads history', async () => {
     let resolvedId = null;
     let loadedSession = null;
 
@@ -68,7 +68,7 @@ describe('HostDispatcher.buildRequest', () => {
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'bob',
       channelId: 'telegram',
       content: 'Hi',
@@ -79,7 +79,7 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(req.history.length, 1);
   });
 
-  it('includes tool schemas filtered by policy (annotated return)', () => {
+  it('includes tool schemas filtered by policy (annotated return)', async () => {
     // Spec 23: getEffectiveToolNames now returns { name, requiresApproval }[]
     const dispatcher = makeDispatcher({
       toolPolicy: {
@@ -104,7 +104,7 @@ describe('HostDispatcher.buildRequest', () => {
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: 'What time?',
@@ -113,7 +113,7 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(req.toolSchemas.length, 3);
   });
 
-  it('extracts .name from annotated tool list for Set filtering', () => {
+  it('extracts .name from annotated tool list for Set filtering', async () => {
     // Spec 23: HostDispatcher must extract .name from { name, requiresApproval }[]
     let receivedFilter = null;
     const dispatcher = makeDispatcher({
@@ -131,7 +131,7 @@ describe('HostDispatcher.buildRequest', () => {
       },
     });
 
-    dispatcher.buildRequest({
+    await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: 'test',
@@ -144,7 +144,7 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(receivedFilter.size, 2);
   });
 
-  it('handles null from getEffectiveToolNames (admin/full profile)', () => {
+  it('handles null from getEffectiveToolNames (admin/full profile)', async () => {
     // Spec 23: null means all tools — no filtering
     const dispatcher = makeDispatcher({
       toolPolicy: {
@@ -158,7 +158,7 @@ describe('HostDispatcher.buildRequest', () => {
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'admin',
       channelId: 'console',
       content: 'do anything',
@@ -167,7 +167,7 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(req.toolSchemas.length, 1);
   });
 
-  it('matches skill triggers', () => {
+  it('matches skill triggers', async () => {
     const dispatcher = makeDispatcher({
       skillLoader: {
         getLoadedSkills: () => [
@@ -177,7 +177,7 @@ describe('HostDispatcher.buildRequest', () => {
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: '/translate hello world',
@@ -186,7 +186,7 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(req.skillInstructions, 'Translate the following text');
   });
 
-  it('searches memory', () => {
+  it('searches memory', async () => {
     const dispatcher = makeDispatcher({
       memorySearch: {
         search: (query, limit) => {
@@ -197,7 +197,7 @@ describe('HostDispatcher.buildRequest', () => {
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: 'What do I like?',
@@ -207,14 +207,14 @@ describe('HostDispatcher.buildRequest', () => {
     assert.equal(req.memorySnippets[0].key, 'prefs');
   });
 
-  it('handles memory search failure gracefully', () => {
+  it('handles memory search failure gracefully', async () => {
     const dispatcher = makeDispatcher({
       memorySearch: {
         search: () => { throw new Error('FTS broken'); },
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'alice',
       channelId: 'console',
       content: 'test',

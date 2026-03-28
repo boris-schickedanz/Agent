@@ -33,6 +33,7 @@ export class LocalRunner extends AgentRunner {
         toolSchemas: request.toolSchemas,
         allowedToolNames: request.allowedToolNames,
         memorySnippets: request.memorySnippets,
+        workspaceState: request.workspaceState,
         skillInstructions: request.skillInstructions,
         sessionMetadata: request.sessionMetadata,
         maxIterations: request.maxIterations,

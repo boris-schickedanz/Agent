@@ -24,7 +24,7 @@ export class PromptBuilder {
     return adapter.charAt(0).toUpperCase() + adapter.slice(1);
   }
 
-  async build(session, availableTools, skillInstructions = null, memorySnippets = null) {
+  async build(session, availableTools, skillInstructions = null, memorySnippets = null, workspaceState = null) {
     const parts = [];
 
     // 1. Agent personality — use agent profile soul if present, otherwise SOUL.md
@@ -57,6 +57,11 @@ export class PromptBuilder {
           : '';
         parts.push(`- **${mem.key}**${savedAt}: ${mem.content.substring(0, 300)}`);
       }
+    }
+
+    // 3b. Workspace state (Spec 29)
+    if (workspaceState) {
+      parts.push(`\n${workspaceState}`);
     }
 
     // 4. Skill instructions

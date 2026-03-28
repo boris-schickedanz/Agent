@@ -51,6 +51,10 @@ export const config = Object.freeze({
   // Container runtime
   containerMode: process.env.CONTAINER_MODE || 'auto',
 
+  // Workspace state (Spec 29)
+  workspaceStateEnabled: process.env.WORKSPACE_STATE_ENABLED !== 'false',
+  workspaceStateMaxChars: parseInt(process.env.WORKSPACE_STATE_MAX_CHARS || '3000', 10),
+
   // Phase 3: Delegation & Dashboard
   maxDelegations: parseInt(process.env.MAX_DELEGATIONS || '10', 10),
   maxDelegationsPerSession: parseInt(process.env.MAX_DELEGATIONS_PER_SESSION || '3', 10),

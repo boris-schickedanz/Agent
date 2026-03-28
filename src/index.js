@@ -9,6 +9,7 @@ import { ToolExecutor } from './tools/tool-executor.js';
 import { ConversationMemory } from './memory/conversation-memory.js';
 import { PersistentMemory } from './memory/persistent-memory.js';
 import { MemorySearch } from './memory/memory-search.js';
+import { StateBootstrap } from './memory/state-bootstrap.js';
 import { SessionManager } from './core/session-manager.js';
 import { MessageQueue } from './core/message-queue.js';
 import { AgentLoop } from './core/agent-loop.js';
@@ -62,6 +63,9 @@ async function main() {
   const conversationMemory = new ConversationMemory(db);
   const persistentMemory = new PersistentMemory(config.dataDir, db);
   const memorySearch = new MemorySearch(db);
+
+  // Phase 3b: State bootstrap (Spec 29)
+  const stateBootstrap = new StateBootstrap({ persistentMemory, config, logger });
 
   // Phase 4: Tools
   const toolRegistry = new ToolRegistry();
@@ -187,6 +191,7 @@ async function main() {
     config,
     agentRegistry,
     llmProvider,
+    stateBootstrap,
   });
 
   // Phase 12: Wire event bus — inbound message processing
@@ -247,7 +252,7 @@ async function main() {
 
     // Build request, enqueue, and finalize
     try {
-      const request = dispatcher.buildRequest(sanitized);
+      const request = await dispatcher.buildRequest(sanitized);
 
       // Create streaming callback that emits on the EventBus
       const onStreamEvent = (event) => {

@@ -68,7 +68,7 @@ describe('End-to-end pipeline (M3)', () => {
     const { dispatcher, messageQueue, outboundMessages, appended } = makeFullPipeline();
 
     const message = { id: 'msg-1', sessionId: 'console:user1', channelId: 'console', userId: 'user1', userName: 'User', content: 'Hello' };
-    const request = dispatcher.buildRequest(message);
+    const request = await dispatcher.buildRequest(message);
     const result = await messageQueue.enqueue(request.sessionId, request);
     await dispatcher.finalize(request, result, message);
 
@@ -84,7 +84,7 @@ describe('End-to-end pipeline (M3)', () => {
     const { dispatcher, messageQueue, outboundMessages } = makeFullPipeline();
 
     const message = { id: 'tg-42', sessionId: 'telegram:99999', channelId: 'telegram', userId: '99999', userName: 'TgUser', content: 'Hallo' };
-    const request = dispatcher.buildRequest(message);
+    const request = await dispatcher.buildRequest(message);
     const result = await messageQueue.enqueue(request.sessionId, request);
     await dispatcher.finalize(request, result, message);
 
@@ -113,8 +113,8 @@ describe('End-to-end pipeline (M3)', () => {
     const msg1 = { id: '1', sessionId: 's1', channelId: 'c', userId: 'u1', content: 'First' };
     const msg2 = { id: '2', sessionId: 's1', channelId: 'c', userId: 'u1', content: 'Second' };
 
-    const req1 = dispatcher.buildRequest(msg1);
-    const req2 = dispatcher.buildRequest(msg2);
+    const req1 = await dispatcher.buildRequest(msg1);
+    const req2 = await dispatcher.buildRequest(msg2);
 
     const p1 = messageQueue.enqueue(req1.sessionId, req1);
     const p2 = messageQueue.enqueue(req2.sessionId, req2);
@@ -149,8 +149,8 @@ describe('End-to-end pipeline (M3)', () => {
     const msg1 = { id: '1', sessionId: 's1', channelId: 'c', userId: 'userA', content: 'A' };
     const msg2 = { id: '2', sessionId: 's2', channelId: 'c', userId: 'userB', content: 'B' };
 
-    const req1 = dispatcher.buildRequest(msg1);
-    const req2 = dispatcher.buildRequest(msg2);
+    const req1 = await dispatcher.buildRequest(msg1);
+    const req2 = await dispatcher.buildRequest(msg2);
 
     // Enqueue for different sessions — should process in parallel
     const p1 = messageQueue.enqueue(req1.sessionId, req1);
@@ -190,7 +190,7 @@ describe('End-to-end pipeline (M3)', () => {
     });
 
     const msg = { id: '1', channelId: 'c', userId: 'u1', content: 'fetch something' };
-    const req = dispatcher.buildRequest(msg);
+    const req = await dispatcher.buildRequest(msg);
     const result = await messageQueue.enqueue(req.sessionId, req);
     await dispatcher.finalize(req, result, msg);
 
@@ -209,20 +209,20 @@ describe('End-to-end pipeline (M3)', () => {
     });
 
     const msg = { id: '1', channelId: 'c', userId: 'u1', content: 'What do I like?' };
-    const req = dispatcher.buildRequest(msg);
+    const req = await dispatcher.buildRequest(msg);
 
     assert.equal(req.memorySnippets.length, 1);
     assert.equal(req.memorySnippets[0].key, 'pref');
   });
 
-  it('skill trigger matching works', () => {
+  it('skill trigger matching works', async () => {
     const { dispatcher } = makeFullPipeline({
       skillLoader: {
         getLoadedSkills: () => [{ trigger: '/translate', instructions: 'Translate!' }],
       },
     });
 
-    const req = dispatcher.buildRequest({
+    const req = await dispatcher.buildRequest({
       userId: 'u', channelId: 'c', content: '/translate bonjour',
     });
 
@@ -247,7 +247,7 @@ describe('End-to-end pipeline (M3)', () => {
     });
 
     const msg = { id: '1', channelId: 'c', userId: 'u', content: 'Tell me the secret' };
-    const req = dispatcher.buildRequest(msg);
+    const req = await dispatcher.buildRequest(msg);
     const result = await messageQueue.enqueue(req.sessionId, req);
     await dispatcher.finalize(req, result, msg);
 
