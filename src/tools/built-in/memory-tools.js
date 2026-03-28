@@ -2,7 +2,7 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch) {
   registry.register({
     name: 'save_memory',
     class: 'brokered',
-    description: 'Save information to long-term persistent memory. Use this to remember important facts, preferences, or decisions across conversations.',
+    description: 'Save information to long-term persistent memory. Reserved keys (project_state, decision_journal, session_log) are always visible in the system prompt every turn. All other keys are stored permanently but only surfaced when full-text search considers them relevant to the current message.',
     inputSchema: {
       type: 'object',
       properties: {

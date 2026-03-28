@@ -312,6 +312,8 @@ async function main() {
           auditLogger,
           scheduler: null, // Set after scheduler is created
           agentRegistry,
+          persistentMemory,
+          conversationMemory,
         });
         await dashboardServer.start();
         logger.info({ port: config.healthPort }, 'Dashboard server started');

@@ -2,23 +2,29 @@ const API_KEY = localStorage.getItem('agentcore_key') || prompt('Enter master ke
 if (API_KEY) localStorage.setItem('agentcore_key', API_KEY);
 
 const content = document.getElementById('content');
-const navLinks = document.querySelectorAll('nav a[data-page]');
+const navLinks = document.querySelectorAll('.lcars-sidebar a[data-page]');
 
 async function api(path) {
   const res = await fetch(path, { headers: { Authorization: `Bearer ${API_KEY}` } });
   if (res.status === 401) { localStorage.removeItem('agentcore_key'); location.reload(); }
+  if (res.status === 404) return null;
   return res.json();
 }
 
-function html(strings, ...values) {
-  return strings.reduce((r, s, i) => r + s + (values[i] != null ? values[i] : ''), '');
+const _escEl = document.createElement('div');
+function esc(str) {
+  if (str == null) return '';
+  _escEl.textContent = String(str);
+  return _escEl.innerHTML;
 }
 
-function badge(status) {
-  const cls = status === 'healthy' || status === 'ok' || status === 'admin' ? 'badge-ok'
-    : status === 'degraded' || status === 'user' ? 'badge-warn' : 'badge-err';
-  return `<span class="badge ${cls}">${status}</span>`;
+function badge(label, colorMap) {
+  const defaults = { healthy: 'badge-ok', ok: 'badge-ok', admin: 'badge-ok', degraded: 'badge-warn', user: 'badge-warn' };
+  const cls = (colorMap || defaults)[label] || 'badge-err';
+  return `<span class="badge ${cls}">${esc(label)}</span>`;
 }
+
+const ROLE_COLORS = { user: 'badge-role-user', assistant: 'badge-role-assistant', system: 'badge-role-system' };
 
 function formatDate(ts) {
   if (!ts) return '—';
@@ -26,95 +32,205 @@ function formatDate(ts) {
   return d.toLocaleString();
 }
 
+function formatContent(c) {
+  if (typeof c === 'string') return esc(c);
+  if (Array.isArray(c)) {
+    return c.map(block => {
+      if (block.type === 'text') return esc(block.text);
+      if (block.type === 'tool_use') return `<div class="tool-call"><strong>${esc(block.name)}</strong><pre>${esc(JSON.stringify(block.input, null, 2))}</pre></div>`;
+      if (block.type === 'tool_result') {
+        const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content, null, 2);
+        return `<div class="tool-result"><pre>${esc(text.substring(0, 2000))}${text.length > 2000 ? '\n...[truncated]' : ''}</pre></div>`;
+      }
+      return `<pre>${esc(JSON.stringify(block, null, 2))}</pre>`;
+    }).join('');
+  }
+  return `<pre>${esc(JSON.stringify(c, null, 2))}</pre>`;
+}
+
+function renderCard(title, body) {
+  if (!body) return `<div class="card"><h3>${esc(title)}</h3><p class="muted">Not initialized</p></div>`;
+  return `<div class="card"><h3>${esc(title)}</h3><pre class="memory-content">${esc(body)}</pre></div>`;
+}
+
+function navigate(page, ...args) {
+  navLinks.forEach(l => l.classList.remove('active'));
+  const link = document.querySelector(`.lcars-sidebar a[data-page="${page}"]`);
+  if (link) link.classList.add('active');
+  if (pages[page]) pages[page](...args).catch(err => {
+    content.innerHTML = `<h2>Error</h2><p>${esc(err.message)}</p>`;
+  });
+}
+
+// Delegated click handler for data-nav elements (avoids inline onclick XSS)
+content.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-nav]');
+  if (!el) return;
+  e.preventDefault();
+  const nav = el.dataset.nav;
+  const args = el.dataset.navArgs ? JSON.parse(el.dataset.navArgs) : [];
+  navigate(nav, ...args);
+});
+
+const WS_KEYS = ['project_state', 'decision_journal', 'session_log'];
+
 // Pages
 const pages = {
   async status() {
     const data = await api('/api/status');
     const h = data.health || {};
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Status</h2>
       <div class="stats">
         <div class="stat"><div class="value">${badge(h.status || 'unknown')}</div><div class="label">Health</div></div>
-        <div class="stat"><div class="value">${h.uptime || 0}s</div><div class="label">Uptime</div></div>
-        <div class="stat"><div class="value">${h.version || '?'}</div><div class="label">Version</div></div>
-        <div class="stat"><div class="value">${h.database || '?'}</div><div class="label">Database</div></div>
+        <div class="stat"><div class="value">${esc(h.uptime || 0)}s</div><div class="label">Uptime</div></div>
+        <div class="stat"><div class="value">${esc(h.version || '?')}</div><div class="label">Version</div></div>
+        <div class="stat"><div class="value">${esc(h.database || '?')}</div><div class="label">Database</div></div>
       </div>
       <div class="card">
         <h3>Configuration</h3>
         <table>
-          ${Object.entries(data.config || {}).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}
+          ${Object.entries(data.config || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}
         </table>
       </div>`;
   },
 
+  async project() {
+    const data = await api('/api/workspace-state');
+    content.innerHTML = `
+      <h2>Project State</h2>
+      ${renderCard('Project State', data.project_state)}
+      ${renderCard('Decision Journal', data.decision_journal)}
+      ${renderCard('Session Log', data.session_log)}`;
+  },
+
   async sessions() {
     const data = await api('/api/sessions');
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Sessions</h2>
       <table>
         <thead><tr><th>ID</th><th>User</th><th>Channel</th><th>Last Activity</th></tr></thead>
         <tbody>
-          ${data.map(s => `<tr><td>${s.id}</td><td>${s.user_id}</td><td>${s.channel_id}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
+          ${data.map(s => `<tr class="clickable-row" data-nav="sessionDetail" data-nav-args='${esc(JSON.stringify([s.id]))}'><td>${esc(s.id)}</td><td>${esc(s.user_id)}</td><td>${esc(s.channel_id)}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
         </tbody>
       </table>`;
+  },
+
+  async sessionDetail(sessionId) {
+    const messages = await api(`/api/sessions/${encodeURIComponent(sessionId)}/messages`);
+    const msgHtml = (messages || []).map(m => `
+      <div class="message message-${esc(m.role)}">
+        <div class="message-header">
+          ${badge(m.role, ROLE_COLORS)}
+          <span class="message-time">${formatDate(m.created_at)}</span>
+          ${m.token_estimate ? `<span class="muted">${m.token_estimate} tokens</span>` : ''}
+        </div>
+        <div class="message-body">${formatContent(m.content)}</div>
+      </div>
+    `).join('');
+
+    content.innerHTML = `
+      <a href="#" class="back-link" data-nav="sessions">← Back to Sessions</a>
+      <h2>Session: ${esc(sessionId)}</h2>
+      <p class="muted">${(messages || []).length} messages</p>
+      <div class="message-list">${msgHtml || '<p class="muted">No messages in this session.</p>'}</div>`;
   },
 
   async users() {
     const data = await api('/api/users');
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Users</h2>
       <table>
         <thead><tr><th>ID</th><th>Channel</th><th>Name</th><th>Role</th><th>Created</th></tr></thead>
         <tbody>
-          ${data.map(u => `<tr><td>${u.id}</td><td>${u.channel_id}</td><td>${u.display_name || '—'}</td><td>${badge(u.role)}</td><td>${formatDate(u.created_at)}</td></tr>`).join('')}
+          ${data.map(u => `<tr class="clickable-row" data-nav="userDetail" data-nav-args='${esc(JSON.stringify([u.id, u.display_name || u.id]))}'><td>${esc(u.id)}</td><td>${esc(u.channel_id)}</td><td>${esc(u.display_name || '—')}</td><td>${badge(u.role)}</td><td>${formatDate(u.created_at)}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
 
+  async userDetail(userId, displayName) {
+    const sessions = await api(`/api/sessions?user_id=${encodeURIComponent(userId)}`);
+    content.innerHTML = `
+      <a href="#" class="back-link" data-nav="users">← Back to Users</a>
+      <h2>User: ${esc(displayName || userId)}</h2>
+      <p class="muted">${(sessions || []).length} sessions</p>
+      <table>
+        <thead><tr><th>Session ID</th><th>Channel</th><th>Last Activity</th></tr></thead>
+        <tbody>
+          ${(sessions || []).map(s => `<tr class="clickable-row" data-nav="sessionDetail" data-nav-args='${esc(JSON.stringify([s.id]))}'><td>${esc(s.id)}</td><td>${esc(s.channel_id)}</td><td>${formatDate(s.updated_at)}</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+  },
+
+  async memory() {
+    const keys = await api('/api/memory');
+    content.innerHTML = `
+      <h2>Memory (${(keys || []).length} keys)</h2>
+      ${(!keys || keys.length === 0) ? '<p class="muted">No memories stored yet.</p>' : ''}
+      <div class="memory-list">
+        ${(keys || []).map(k => `
+          <div class="memory-item clickable-row" data-nav="memoryDetail" data-nav-args='${esc(JSON.stringify([k]))}'>
+            <span class="memory-key">${esc(k)}</span>
+            ${WS_KEYS.includes(k) ? '<span class="badge badge-ok">workspace</span>' : ''}
+          </div>
+        `).join('')}
+      </div>`;
+  },
+
+  async memoryDetail(key) {
+    const data = await api(`/api/memory/${encodeURIComponent(key)}`);
+    content.innerHTML = `
+      <a href="#" class="back-link" data-nav="memory">← Back to Memory</a>
+      <h2>Memory: ${esc(key)}</h2>
+      <div class="card">
+        ${data ? `<pre class="memory-content">${esc(data.content)}</pre>` : '<p class="muted">Memory key not found.</p>'}
+      </div>`;
+  },
+
   async tools() {
     const data = await api('/api/tools');
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Tools (${data.length})</h2>
       <table>
         <thead><tr><th>Name</th><th>Class</th><th>Description</th></tr></thead>
         <tbody>
-          ${data.map(t => `<tr><td><strong>${t.name}</strong></td><td>${t.class}</td><td>${t.description}</td></tr>`).join('')}
+          ${data.map(t => `<tr><td><strong>${esc(t.name)}</strong></td><td>${esc(t.class)}</td><td>${esc(t.description)}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
 
   async skills() {
     const data = await api('/api/skills');
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Skills (${data.length})</h2>
       ${data.length === 0 ? '<p>No skills loaded.</p>' : ''}
       <table>
         <thead><tr><th>Name</th><th>Trigger</th><th>Description</th></tr></thead>
         <tbody>
-          ${data.map(s => `<tr><td><strong>${s.name}</strong></td><td>${s.trigger || '—'}</td><td>${s.description || ''}</td></tr>`).join('')}
+          ${data.map(s => `<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(s.trigger || '—')}</td><td>${esc(s.description || '')}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
 
   async audit() {
     const data = await api('/api/audit');
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Audit Log (${data.length})</h2>
       <table>
         <thead><tr><th>Time</th><th>Type</th><th>Tool</th><th>User</th><th>Success</th></tr></thead>
         <tbody>
-          ${data.map(e => `<tr><td>${formatDate(e.timestamp)}</td><td>${e.event_type}</td><td>${e.tool_name || '—'}</td><td>${e.user_id || '—'}</td><td>${e.success === 1 ? '✓' : e.success === 0 ? '✗' : '—'}</td></tr>`).join('')}
+          ${data.map(e => `<tr><td>${formatDate(e.timestamp)}</td><td>${esc(e.event_type)}</td><td>${esc(e.tool_name || '—')}</td><td>${esc(e.user_id || '—')}</td><td>${e.success === 1 ? '✓' : e.success === 0 ? '✗' : '—'}</td></tr>`).join('')}
         </tbody>
       </table>`;
   },
 
   async config() {
     const data = await api('/api/config');
-    content.innerHTML = html`
+    content.innerHTML = `
       <h2>Configuration</h2>
       <div class="card">
         <table>
-          ${Object.entries(data).map(([k, v]) => `<tr><td>${k}</td><td>${JSON.stringify(v)}</td></tr>`).join('')}
+          ${Object.entries(data).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(JSON.stringify(v))}</td></tr>`).join('')}
         </table>
       </div>`;
   },
@@ -124,12 +240,7 @@ const pages = {
 navLinks.forEach(link => {
   link.addEventListener('click', (e) => {
     e.preventDefault();
-    navLinks.forEach(l => l.classList.remove('active'));
-    link.classList.add('active');
-    const page = link.dataset.page;
-    if (pages[page]) pages[page]().catch(err => {
-      content.innerHTML = `<h2>Error</h2><p>${err.message}</p>`;
-    });
+    navigate(link.dataset.page);
   });
 });
 

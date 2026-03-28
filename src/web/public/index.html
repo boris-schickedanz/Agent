@@ -3,25 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentCore Dashboard</title>
+  <title>AgentCore — LCARS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <nav>
-    <h1>AgentCore</h1>
-    <ul>
-      <li><a href="#" data-page="status" class="active">Status</a></li>
-      <li><a href="#" data-page="sessions">Sessions</a></li>
-      <li><a href="#" data-page="users">Users</a></li>
-      <li><a href="#" data-page="tools">Tools</a></li>
-      <li><a href="#" data-page="skills">Skills</a></li>
-      <li><a href="#" data-page="audit">Audit</a></li>
-      <li><a href="#" data-page="config">Config</a></li>
-    </ul>
-  </nav>
-  <main id="content">
-    <p>Loading...</p>
-  </main>
+  <div class="lcars-frame">
+    <!-- Top bar -->
+    <div class="lcars-top-bar">
+      <div class="lcars-elbow-top"></div>
+      <div class="lcars-top-label">AgentCore</div>
+      <div class="lcars-top-fill"></div>
+      <div class="lcars-top-accent lcars-accent-1"></div>
+      <div class="lcars-top-accent lcars-accent-2"></div>
+      <div class="lcars-top-accent lcars-accent-3"></div>
+      <div class="lcars-top-cap"></div>
+    </div>
+
+    <div class="lcars-body">
+      <!-- Sidebar -->
+      <nav class="lcars-sidebar">
+        <div class="lcars-sidebar-bar"></div>
+        <ul>
+          <li><a href="#" data-page="status" class="active">System Status</a></li>
+          <li><a href="#" data-page="project">Project State</a></li>
+          <li><a href="#" data-page="sessions">Sessions</a></li>
+          <li><a href="#" data-page="users">Personnel</a></li>
+          <li><a href="#" data-page="memory">Memory Banks</a></li>
+          <li><a href="#" data-page="tools">Tools</a></li>
+          <li><a href="#" data-page="skills">Skills</a></li>
+          <li><a href="#" data-page="audit">Audit Log</a></li>
+          <li><a href="#" data-page="config">Configuration</a></li>
+        </ul>
+        <div class="lcars-sidebar-spacer"></div>
+      </nav>
+
+      <!-- Main content -->
+      <main id="content">
+        <p>Loading...</p>
+      </main>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="lcars-bottom-bar">
+      <div class="lcars-elbow-bottom"></div>
+      <div class="lcars-bottom-fill"></div>
+      <div class="lcars-bottom-accent lcars-accent-4"></div>
+      <div class="lcars-bottom-accent lcars-accent-5"></div>
+      <div class="lcars-bottom-cap"></div>
+    </div>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>
