@@ -97,8 +97,8 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| WS1 | Initialize workspace state | First substantive interaction with no `project_state` memory | Agent sees bootstrapping hint in prompt, creates `project_state` via `save_memory` | StateBootstrap, PromptBuilder, save_memory | No |
-| WS2 | Resume from prior session | New session when `project_state` exists | System prompt includes workspace state; agent continues without re-asking context | StateBootstrap, HostDispatcher, PromptBuilder | No |
+| WS1 | Initialize workspace state | First substantive interaction with no `project_state` memory | Agent sees bootstrapping hint in prompt, creates `project_state` via `save_memory` | StateBootstrap, PromptBuilder, save_memory | Yes (workspace-state-e2e) |
+| WS2 | Resume from prior session | New session when `project_state` exists | System prompt includes workspace state; agent continues without re-asking context | StateBootstrap, HostDispatcher, PromptBuilder | Yes (workspace-state-e2e) |
 | WS3 | Self-audit past decisions | "Why did we choose X?" | Agent searches `decision_journal` via `search_memory`, provides reasoning | MemorySearch, decision_journal convention | No |
 | WS4 | Update project state | Agent completes task or makes decision | Agent calls `save_memory` to update `project_state` and/or append to `decision_journal` | PersistentMemory, save_memory | No |
 
@@ -168,15 +168,15 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | Agent Profiles | 5 | 0 | 4 | 1 |
 | Model Switching | 3 | 3 | 0 | 0 |
 | Skills | 2 | 0 | 2 | 0 |
-| Workspace State | 4 | 0 | 0 | 4 |
+| Workspace State | 4 | 2 | 0 | 2 |
 | Security & Permissions | 8 | 3 | 0 | 5 |
 | Scheduling | 3 | 0 | 2 | 1 |
 | Telegram-Specific | 10 | 1 | 1 | 8 |
 | Cross-Adapter | 2 | 1 | 0 | 1 |
 | Error Recovery | 4 | 1 | 3 | 0 |
-| **Total** | **65** | **23** | **14** | **28** |
+| **Total** | **65** | **25** | **14** | **26** |
 
-**35% fully tested, 22% partially tested, 43% not tested.**
+**38% fully tested, 22% partially tested, 40% not tested.**
 
 ---
 
