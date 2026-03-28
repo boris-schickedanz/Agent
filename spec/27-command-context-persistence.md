@@ -25,6 +25,10 @@ After a state-changing command is handled, persist both the user's command and t
 | `/agent <name>` | Yes | Agent should know its profile changed |
 | `/agent default` | Yes | Agent should know profile was reset |
 | `/agent list` | No | Informational, no state change |
+| `/project <name>` | Yes | Agent should know which project is active |
+| `/project` (query) | Yes | Keeps conversation coherent |
+| `/project list` | Yes | Persisted for context |
+| `/project none` | Yes | Agent should know project was deactivated |
 | `/approve` / `/reject` | No | Already handled — approve forwards content to pipeline |
 | `/new` | No | History is cleared by design |
 
@@ -53,7 +57,7 @@ This keeps them lightweight and readable in history without special handling.
 
 | Component | Change |
 |-----------|--------|
-| `src/core/command-router.js` | Add `_persistAndRespond()` method; use it in `_handleModel()` and `_handleAgent()` |
+| `src/core/command-router.js` | Add `_persistAndRespond()` method; use it in `_handleModel()`, `_handleAgent()`, and `_handleProject()` |
 | `src/brain/prompt-builder.js` | Add active model to "Current Context" section |
 | `src/core/host-dispatcher.js` | Set `activeModel` on session metadata before passing to agent loop |
 

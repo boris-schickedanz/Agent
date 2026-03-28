@@ -31,7 +31,9 @@ Tests use Node's built-in test runner (`node:test` + `node:assert/strict`). No t
 
 See [`spec/ARCHITECTURE.md`](spec/ARCHITECTURE.md) for the full architecture overview, message flow, and subsystem descriptions.
 
-Key source layout: `src/core/` (runtime), `src/brain/` (LLM + context), `src/tools/` (tool system), `src/memory/` (persistence), `src/security/` (pipeline), `src/adapters/` (channels), `src/agents/` (profiles).
+Key source layout: `src/core/` (runtime), `src/brain/` (LLM + context), `src/tools/` (tool system), `src/memory/` (persistence + projects), `src/security/` (pipeline), `src/adapters/` (channels), `src/agents/` (profiles).
+
+The agent supports multiple isolated projects via `ProjectManager` (`src/memory/project-manager.js`). Use `/project <name>` to switch, `/project list` to list, `/project none` to deactivate. The agent can also auto-switch via the `switch_project` tool. See [`spec/31-multi-project.md`](spec/31-multi-project.md).
 
 ## Deployment
 

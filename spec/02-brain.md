@@ -144,7 +144,7 @@ async compact(messages: Message[]): Message[]
 5. Messages are serialized via `_formatMessages()` as `[role]: content` blocks.
 6. Replace the older portion with a single synthetic message: `{ role: 'user', content: '[Previous conversation summary]: ...' }`
 7. Return `[summaryMessage, ...recentMessages]`.
-8. If summarization LLM call fails, fall back to simply dropping the older portion (truncation).
+8. If summarization LLM call fails, log a warning and prepend a sentinel summary (`[Summarization failed. Some earlier context may be missing.]`) before the retained messages so the agent knows context was lost.
 
 **Configuration:**
 - `config.compactionThreshold`: token count triggering compaction (default: 80,000)
