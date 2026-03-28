@@ -82,7 +82,7 @@ export class StateBootstrap {
       if (projectSlug) {
         return `[Project "${projectSlug}" has no state yet. Use save_memory with key "project_state" to initialize it.]`;
       }
-      return '[Workspace state not initialized. When working on a project, use save_memory with key "project_state" to track objectives, tasks, and decisions across sessions.]';
+      return '[Workspace state not initialized. When working on a project, use save_memory with key "project_state" to track objectives, tasks, and decisions.]';
     }
 
     const header = projectSlug

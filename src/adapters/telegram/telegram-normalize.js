@@ -3,14 +3,13 @@
  */
 
 export function normalizeMessage(msg) {
-  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
   const chatId = String(msg.chat.id);
   const userId = String(msg.from?.id || chatId);
   const userName = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
 
   return {
     id: String(msg.message_id),
-    sessionId: isGroup ? `telegram:group:${chatId}` : `telegram:${chatId}`,
+    sessionId: `telegram:${chatId}`,
     channelId: 'telegram',
     userId,
     userName,
@@ -24,14 +23,13 @@ export function normalizeMessage(msg) {
 
 export function normalizeCallbackQuery(query) {
   const msg = query.message;
-  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
   const chatId = String(msg.chat.id);
   const userId = String(query.from.id);
   const userName = [query.from.first_name, query.from.last_name].filter(Boolean).join(' ') || 'Unknown';
 
   return {
     id: String(query.id),
-    sessionId: isGroup ? `telegram:group:${chatId}` : `telegram:${chatId}`,
+    sessionId: `telegram:${chatId}`,
     channelId: 'telegram',
     userId,
     userName,

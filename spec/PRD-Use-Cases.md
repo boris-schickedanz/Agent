@@ -8,10 +8,8 @@ This document is the canonical inventory of everything a user can do with AgentC
 
 | Role | Registration | Tool access | Approval | Description |
 |------|-------------|-------------|----------|-------------|
-| **Admin** | Manual DB entry | All tools | Bypassed | Full control. Manages other users. |
-| **User** | Auto (`AUTO_APPROVE_USERS=true`) or promoted from pending | Standard tools (read + write) | Required for write tools | Normal user with approval-gated write access. |
-| **Pending** | Auto (first message, `AUTO_APPROVE_USERS=false`) | Minimal (`get_current_time` only) | N/A | New, unverified user. Must be promoted to user/admin. |
-| **Blocked** | Manual DB entry | None | N/A | Denied all access. |
+| **Admin** | Manual DB entry | All tools | Bypassed | Full control. Unrestricted tool access. |
+| **User** | Auto (`AUTO_APPROVE_USERS=true`) | Standard tools (read + write) | Required for write tools | Default role with approval-gated write access. |
 
 ---
 

@@ -118,7 +118,7 @@ Comprehensive threat model for AgentCore. Identifies how an attacker who gained 
 #### C1. Arbitrary shell command execution via run_command
 - **Severity:** ~~CRITICAL~~ → **HIGH** (container mitigated)
 - **Location:** [shell-tools.js:17-21](src/tools/built-in/shell-tools.js), [process-manager.js:171-223](src/process/process-manager.js)
-- **Description:** The `run_command` tool passes user-influenced command strings directly to `spawn(command, [], { shell: true })`. While gated by the approval workflow, if an attacker gets approval (via social engineering, prompt injection, group chat bleed, or admin role):
+- **Description:** The `run_command` tool passes user-influenced command strings directly to `spawn(command, [], { shell: true })`. While gated by the approval workflow, if an attacker gets approval (via social engineering, prompt injection, or admin role):
 - **Attack examples (container context):**
   - `run_command({command: "env"})` — dump all env vars including API keys (**still works — secrets forwarded**)
   - `run_command({command: "cat /app/data/agentcore.db"})` — read entire database (**still works — volume-mounted**)
