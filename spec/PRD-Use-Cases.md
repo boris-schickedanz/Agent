@@ -98,9 +98,12 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
 | WS1 | Initialize workspace state | First substantive interaction with no `project_state` memory | Agent sees bootstrapping hint in prompt, creates `project_state` via `save_memory` | StateBootstrap, PromptBuilder, save_memory | Yes (workspace-state-e2e) |
-| WS2 | Resume from prior session | New session when `project_state` exists | System prompt includes workspace state; agent continues without re-asking context | StateBootstrap, HostDispatcher, PromptBuilder | Yes (workspace-state-e2e) |
+| WS2 | Resume after conversation reset | New session when `project_state` exists | System prompt includes workspace state; agent continues without re-asking context | StateBootstrap, HostDispatcher, PromptBuilder | Yes (workspace-state-e2e) |
 | WS3 | Self-audit past decisions | "Why did we choose X?" | Agent searches `decision_journal` via `search_memory`, provides reasoning | MemorySearch, decision_journal convention | No |
 | WS4 | Update project state | Agent completes task or makes decision | Agent calls `save_memory` to update `project_state` and/or append to `decision_journal` | PersistentMemory, save_memory | No |
+| WS5 | Switch project | `/project panama-trip` | Active project switched; project state injected into system prompt on next turn | ProjectManager, CommandRouter, StateBootstrap | No |
+| WS6 | Agent auto-switches project | User starts discussing a new topic | Agent calls `switch_project` tool; new project's state (or empty state) injected | ProjectManager, switch_project tool, StateBootstrap | No |
+| WS7 | List projects | `/project list` | Lists all projects with active indicator | ProjectManager, CommandRouter | No |
 
 ### 2.10 Security & Permissions
 
@@ -128,7 +131,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
 | TG1 | Private message | User sends message in private chat | Session: `telegram:{chatId}`, full access | TelegramAdapter, SessionManager | Yes (pipeline-e2e) |
-| TG2 | Group message | User sends message in group | Session: `telegram:group:{chatId}`, isolated from private | TelegramAdapter, SessionManager | Partial (session-identity unit) |
+| TG2 | [Removed — no group chats] | — | — | — | — |
 | TG3 | Command with @BotName | `/approve@AgentCoreBot` | @BotName stripped, command recognized | CommandRouter | Yes (context-management, approval-flow) |
 | TG4 | Photo attachment | User sends photo with caption | Photo file_id extracted, caption as content | telegram-normalize | No |
 | TG5 | Document attachment | User sends PDF/file | Document metadata extracted | telegram-normalize | No |

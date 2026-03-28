@@ -4,7 +4,7 @@
 
 ## 1. Purpose
 
-Give the agent continuity across sessions. Today, each session starts cold — the agent has no idea what it worked on last time, what decisions it made, or what's next. Users must re-explain context every session, and the agent can't build on its own prior work.
+Give the agent continuity across conversation resets. Today, after a `/new` reset, the agent starts cold — the agent has no idea what it worked on last time, what decisions it made, or what's next. Users must re-explain context every session, and the agent can't build on its own prior work.
 
 This spec defines conventions and a small orchestration layer so the agent maintains structured project state using the existing persistent memory system (Spec 04). Each run becomes a continuation, not a reset. Context compounds instead of being re-explained every time.
 
@@ -12,7 +12,7 @@ This spec defines conventions and a small orchestration layer so the agent maint
 
 The agent already has all the building blocks:
 
-- **Persistent memory** (Spec 04): Cross-session key-value store as markdown files + FTS5 search index. Agent can call `save_memory`, `search_memory`, `list_memories`.
+- **Persistent memory** (Spec 04): Persistent key-value store as markdown files + FTS5 search index. Agent can call `save_memory`, `search_memory`, `list_memories`.
 - **Workspace** (Spec 17): Sandboxed directory with full file tools for project work.
 - **Context compaction** (Spec 15): Pre-compaction memory flush saves important facts before history is summarized.
 - **Memory auto-injection**: `HostDispatcher.buildRequest()` searches memory for relevant snippets (top 5, truncated to 300 chars) and injects them into the system prompt via `PromptBuilder`.
@@ -349,9 +349,9 @@ Agent profiles can have isolated memory namespaces (`PersistentMemory(dataDir, d
 
 The `StateBootstrap` module receives the same `PersistentMemory` instance as the current session, so namespace isolation is automatic.
 
-### 6.4 Session Reset (`/new` Command, Spec 15)
+### 6.4 Conversation Reset (`/new` Command, Spec 15)
 
-The `/new` command clears conversation history but preserves persistent memory. Workspace state keys survive `/new` — this is the intended behavior. After `/new`, the agent starts a fresh conversation but retains full project context via the state bootstrap.
+The `/new` command clears conversation history but preserves persistent memory. Workspace state keys survive `/new` — this is the intended behavior. After a conversation reset, the agent starts a fresh conversation but retains full project context via the state bootstrap.
 
 ## 7. Token Budget
 
@@ -403,6 +403,8 @@ Total: ~80 lines new code + ~20 lines of modifications across 7 existing files.
 | No automatic artifact management | Reusable artifact lifecycle (templates, generated code, vector indexes) is a separate concern. The state conventions provide a foundation but this spec does not define artifact lifecycle rules. |
 | No deduplication between state and memory snippets | Minor redundancy (300-char snippet vs. 2000-char full doc) is acceptable. Active deduplication adds complexity for marginal token savings. |
 
+Multi-project support has been added in Spec 31.
+
 ## 11. Extension Points
 
 - **State categories:** Add more well-known keys (e.g., `error_log`, `user_preferences`, `codebase_map`) as patterns emerge.
@@ -410,6 +412,7 @@ Total: ~80 lines new code + ~20 lines of modifications across 7 existing files.
 - **State versioning:** Use `decision_journal` pattern (append-only with timestamps) for all state keys, or integrate with workspace git.
 - **State-aware compaction:** Include workspace state in compaction summaries to improve rolling compression quality.
 - **State dashboard:** Surface workspace state in the health endpoint (Spec 20) for visibility.
+- **Multi-project support:** Multiple named projects with switching. See Spec 31.
 
 ## 12. Implementation Plan
 
@@ -426,4 +429,4 @@ Total: ~80 lines new code + ~20 lines of modifications across 7 existing files.
 
 ### Phase 3: Prompt Engineering
 1. Add workspace state management section to `SOUL.md`.
-2. Test with multi-session workflow: start a project, save state, `/new`, verify agent picks up context.
+2. Test with conversation reset workflow: start a project, save state, `/new`, verify agent picks up context.

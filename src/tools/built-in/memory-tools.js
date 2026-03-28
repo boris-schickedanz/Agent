@@ -1,8 +1,10 @@
-export function registerMemoryTools(registry, persistentMemory, memorySearch) {
+const WORKSPACE_STATE_KEYS = new Set(['project_state', 'decision_journal', 'session_log']);
+
+export function registerMemoryTools(registry, persistentMemory, memorySearch, projectManager = null) {
   registry.register({
     name: 'save_memory',
     class: 'brokered',
-    description: 'Save information to long-term persistent memory. Reserved keys (project_state, decision_journal, session_log) are always visible in the system prompt every turn. All other keys are stored permanently but only surfaced when full-text search considers them relevant to the current message.',
+    description: 'Save information to long-term persistent memory. Reserved keys (project_state, decision_journal, session_log) are saved to the active project when one exists. All other keys are stored globally.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -18,8 +20,12 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch) {
       required: ['key', 'content'],
     },
     handler: async (input) => {
-      await persistentMemory.save(input.key, input.content);
-      return `Memory saved with key: ${input.key}`;
+      const memory = _resolveMemory(input.key, persistentMemory, projectManager);
+      await memory.save(input.key, input.content);
+      const projectNote = (WORKSPACE_STATE_KEYS.has(input.key) && projectManager?.getActive())
+        ? ` (project: ${projectManager.getActive()})`
+        : '';
+      return `Memory saved with key: ${input.key}${projectNote}`;
     },
     permissions: ['memory:write'],
   });
@@ -71,4 +77,42 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch) {
     },
     permissions: ['memory:read'],
   });
+
+  if (projectManager) {
+    registry.register({
+      name: 'switch_project',
+      class: 'brokered',
+      description: 'Switch the active project context. Creates the project if it does not exist yet. Use this when the user starts working on a different topic or project.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Project name (will be slugified for storage)',
+          },
+        },
+        required: ['name'],
+      },
+      handler: async (input) => {
+        const slug = projectManager.slugify(input.name);
+        if (!slug) return 'Error: project name is empty after slugification.';
+        projectManager.setActive(slug);
+        const mem = projectManager.getActiveMemory();
+        const state = await mem.load('project_state');
+        if (state) {
+          return `Switched to project: ${slug} (existing project with state)`;
+        }
+        return `Switched to project: ${slug} (new project — initialize project_state when ready)`;
+      },
+      permissions: ['memory:write'],
+    });
+  }
+}
+
+function _resolveMemory(key, globalMemory, projectManager) {
+  if (WORKSPACE_STATE_KEYS.has(key) && projectManager) {
+    const activeMem = projectManager.getActiveMemory();
+    if (activeMem) return activeMem;
+  }
+  return globalMemory;
 }

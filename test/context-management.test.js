@@ -165,7 +165,7 @@ describe('ContextCompactor', () => {
     assert.ok(!capturedPrompt.includes('updating'));
   });
 
-  it('falls back to truncation on LLM error', async () => {
+  it('falls back to truncation with sentinel on LLM error', async () => {
     const llm = {
       estimateTokens: () => 100000,
       createMessage: async () => { throw new Error('LLM down'); },
@@ -175,9 +175,11 @@ describe('ContextCompactor', () => {
     const messages = Array.from({ length: 10 }, (_, i) => ({ role: 'user', content: `msg ${i}` }));
     const result = await compactor.compact(messages);
 
-    // Falls back to just the retained messages
-    assert.equal(result.length, 3);
-    assert.equal(result[0].content, 'msg 7');
+    // Sentinel message + retained messages
+    assert.equal(result.length, 4);
+    assert.ok(result[0].content.includes('[Previous conversation summary]'));
+    assert.ok(result[0].content.includes('failed'));
+    assert.equal(result[1].content, 'msg 7');
   });
 
   it('defaults retainMessages to 10', () => {

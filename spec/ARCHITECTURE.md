@@ -117,7 +117,7 @@ Inbound message
   → Agent Loop
 ```
 
-- **RateLimiter** (`rate-limiter.js`): Per-user fixed-window rate limiting (default: 20 msg/min).
+- **RateLimiter** (`rate-limiter.js`): Fixed-window rate limiting (default: 20 msg/min).
 - **ApprovalManager** (`approval-manager.js`): Interactive approve/reject workflow for write tools. Temporary grants (5-minute window). See [spec 19](19-approval-workflow.md).
 - **ToolPolicy** (`tool-policy.js`): Role-based allow/deny profiles — `full` (admin), `standard` (user, write tools gated by approval), `minimal` (pending). See [spec 23](23-read-write-tool-policy.md).
 - **Sandbox** (`sandbox.js`): Workspace path confinement. Blocks directory traversal, symlink escapes, null bytes. See [spec 16](16-sandbox-and-audit.md).
@@ -137,7 +137,6 @@ Streaming: adapters implement `handleStreamEvent()` for `stream:start`, `stream:
 
 `SessionManager` (`src/core/session-manager.js`) resolves normalized messages to canonical session IDs:
 - Individual chats: `user:{canonicalUserId}` (cross-adapter via `user_aliases` table)
-- Group chats: `group:{channel}:{chatId}`
 
 ## Skills
 

@@ -147,7 +147,6 @@ extractAttachments(msg: TelegramMessage): Attachment[]
 
 **Session ID computation:**
 - Private chat: `telegram:{chat.id}`
-- Group/supergroup: `telegram:group:{chat.id}`
 
 **User name:** `msg.from.first_name` + `msg.from.last_name` (space-joined, fallback `'Unknown'`).
 

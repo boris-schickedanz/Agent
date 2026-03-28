@@ -4,7 +4,7 @@
 
 ## 1. Purpose
 
-The memory system provides both short-term (per-session conversation history) and long-term (persistent, cross-session) storage. It enables the agent to maintain context within a conversation and recall knowledge across conversations.
+The memory system provides both short-term (conversation history) and long-term (persistent, surviving conversation resets) storage. It enables the agent to maintain context within a conversation and recall knowledge across conversation resets.
 
 ## 2. Components
 
@@ -94,7 +94,7 @@ async reindex(persistentMemory: PersistentMemory): Promise<void>
 **File:** `src/memory/state-bootstrap.js`
 **Class:** `StateBootstrap`
 
-Reads well-known persistent memory keys at request-build time and returns a formatted string for system prompt injection. Provides cross-session continuity by always injecting project state into the prompt, regardless of search relevance. Results are cached with a 60-second TTL to avoid repeated disk reads on the hot path.
+Reads well-known persistent memory keys at request-build time and returns a formatted string for system prompt injection. Provides continuity across conversation resets by always injecting project state into the prompt, regardless of search relevance. Results are cached with a 60-second TTL to avoid repeated disk reads on the hot path.
 
 **Interface:**
 
@@ -107,7 +107,7 @@ async scan(): string | null
 ## 3. How Memory Is Used in the Pipeline
 
 1. **Host-side search:** `HostDispatcher.buildRequest()` calls `memorySearch.search(message.content, 5)` to find relevant memories and includes them as `memorySnippets` (truncated to 300 chars each) in the `ExecutionRequest`. This search was previously performed inside `PromptBuilder.build()` but was moved to the host as part of the host/runtime boundary refactor.
-2. **Workspace state scan:** `HostDispatcher.buildRequest()` calls `stateBootstrap.scan()` to load well-known state keys (`project_state`, `decision_journal`, `session_log`) and includes the result as `workspaceState` in the `ExecutionRequest`. This provides guaranteed cross-session context injection independent of search relevance. See [Spec 29](29-persistent-workspace-state.md).
+2. **Workspace state scan:** `HostDispatcher.buildRequest()` calls `stateBootstrap.scan()` to load well-known state keys (`project_state`, `decision_journal`, `session_log`) and includes the result as `workspaceState` in the `ExecutionRequest`. This provides guaranteed context injection across conversation resets, independent of search relevance. See [Spec 29](29-persistent-workspace-state.md).
 3. **Prompt building:** `PromptBuilder.build()` receives pre-searched `memorySnippets` and pre-scanned `workspaceState` from the request and includes both in the system prompt.
 4. **Tool use:** The agent can explicitly call `save_memory`, `search_memory`, and `list_memories` tools to manage persistent memory.
 5. **Context compaction:** When conversation history is compacted, the summary replaces older messages in conversation memory via `replaceHistory`.

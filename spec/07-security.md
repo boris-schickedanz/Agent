@@ -105,7 +105,7 @@ getEffectiveToolNames(userId: string, session: Session): Array<{ name, requiresA
 **File:** `src/security/rate-limiter.js`
 **Class:** `RateLimiter`
 
-Fixed-window per-user rate limiting stored in SQLite.
+Fixed-window rate limiting stored in SQLite.
 
 **Interface:**
 
