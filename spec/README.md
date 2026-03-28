@@ -4,6 +4,8 @@ Authoritative design documents for every subsystem. These are the single source 
 
 **Start here:** [ARCHITECTURE.md](ARCHITECTURE.md) — high-level overview of all subsystems, message flow, and project structure.
 
+**Deployment:** [DEPLOYMENT.md](DEPLOYMENT.md) — how the agent runs in production (Apple container, launchd, `agentcore` CLI).
+
 ## Reading Order
 
 Start with specs 01 and 10 for the overall architecture, then read subsystem specs as needed.
