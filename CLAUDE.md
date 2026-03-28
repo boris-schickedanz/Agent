@@ -33,6 +33,10 @@ See [`spec/ARCHITECTURE.md`](spec/ARCHITECTURE.md) for the full architecture ove
 
 Key source layout: `src/core/` (runtime), `src/brain/` (LLM + context), `src/tools/` (tool system), `src/memory/` (persistence), `src/security/` (pipeline), `src/adapters/` (channels), `src/agents/` (profiles).
 
+## Deployment
+
+See [`spec/DEPLOYMENT.md`](spec/DEPLOYMENT.md) for how the agent runs in production: Apple container runtime, `agentcore` CLI commands, launchd boot persistence, and health monitoring.
+
 ## Patterns
 
 - ES modules throughout (`"type": "module"` in package.json). Use `import`/`export`, not `require`.
