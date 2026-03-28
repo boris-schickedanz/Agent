@@ -112,7 +112,28 @@ describe('StateBootstrap', () => {
       });
       const result = await bs.scan();
       assert.ok(result.includes('Content here'));
-      // Should not crash, just skip session_log section
+    });
+
+    it('caches results for subsequent calls', async () => {
+      let loadCount = 0;
+      const memory = {
+        async load(key) {
+          loadCount++;
+          return key === 'project_state' ? '# State' : null;
+        },
+      };
+      const bs = new StateBootstrap({
+        persistentMemory: memory,
+        config: { workspaceStateEnabled: true, workspaceStateMaxChars: 3000 },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      });
+
+      const r1 = await bs.scan();
+      const r2 = await bs.scan();
+      assert.equal(r1, r2);
+      // Only 1 load for project_state (session_log and decision_journal also attempted = 3 total)
+      // Second scan() should hit cache, so still 3
+      assert.equal(loadCount, 3);
     });
   });
 
