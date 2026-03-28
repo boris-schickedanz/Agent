@@ -82,9 +82,10 @@ Three layers in `src/memory/`. See [spec 04](04-memory.md).
 - **ConversationMemory** (`conversation-memory.js`): Per-session message history stored in SQLite. Methods: `append()`, `getHistory()`, `clearSession()`, `replaceHistory()`.
 - **PersistentMemory** (`persistent-memory.js`): Cross-session key-value facts stored as markdown files in `{DATA_DIR}/memory/`. FTS-indexed on save.
 - **MemorySearch** (`memory-search.js`): FTS5 full-text search across persistent memories. Used by HostDispatcher to inject relevant context into each request.
-- **StateBootstrap** (`state-bootstrap.js`): Reads well-known persistent memory keys (`project_state`, `decision_journal`, `session_log`) at request-build time for guaranteed prompt injection. Cached with 60s TTL. See [spec 29](29-persistent-workspace-state.md).
+- **StateBootstrap** (`state-bootstrap.js`): Reads well-known persistent memory keys (`project_state`, `decision_journal`, `session_log`) at request-build time for guaranteed prompt injection. Reads from the active project's memory when one is set. Cached with 60s TTL per project, invalidated on project switch. See [spec 29](29-persistent-workspace-state.md).
+- **ProjectManager** (`project-manager.js`): Manages named project contexts with isolated workspace state. Tracks the active project (file-based), creates per-project directories under `{DATA_DIR}/memory/projects/`, provides scoped `PersistentMemory` instances via `getMemory(slug)`. Switchable via `/project` command or `switch_project` tool. See [spec 31](31-multi-project.md).
 
-The agent accesses persistent memory via `save_memory`, `search_memory`, and `list_memories` tools. The agent maintains structured project state across sessions using well-known memory keys — see [spec 29](29-persistent-workspace-state.md).
+The agent accesses persistent memory via `save_memory`, `search_memory`, `list_memories`, and `switch_project` tools. The agent maintains structured project state using well-known memory keys — see [spec 29](29-persistent-workspace-state.md) and [spec 31](31-multi-project.md).
 
 ## Tool system
 
@@ -117,7 +118,7 @@ Inbound message
   → Agent Loop
 ```
 
-- **RateLimiter** (`rate-limiter.js`): Per-user fixed-window rate limiting (default: 20 msg/min).
+- **RateLimiter** (`rate-limiter.js`): Fixed-window rate limiting (default: 20 msg/min).
 - **ApprovalManager** (`approval-manager.js`): Interactive approve/reject workflow for write tools. Temporary grants (5-minute window). See [spec 19](19-approval-workflow.md).
 - **ToolPolicy** (`tool-policy.js`): Role-based allow/deny profiles — `full` (admin), `standard` (user, write tools gated by approval), `minimal` (pending). See [spec 23](23-read-write-tool-policy.md).
 - **Sandbox** (`sandbox.js`): Workspace path confinement. Blocks directory traversal, symlink escapes, null bytes. See [spec 16](16-sandbox-and-audit.md).
@@ -137,7 +138,6 @@ Streaming: adapters implement `handleStreamEvent()` for `stream:start`, `stream:
 
 `SessionManager` (`src/core/session-manager.js`) resolves normalized messages to canonical session IDs:
 - Individual chats: `user:{canonicalUserId}` (cross-adapter via `user_aliases` table)
-- Group chats: `group:{channel}:{chatId}`
 
 ## Skills
 

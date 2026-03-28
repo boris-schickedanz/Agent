@@ -1,17 +1,16 @@
 # Spec 24 — Use Cases & Product Requirements
 
-> Status: **Active** | Owner: — | Last updated: 2026-03-27
+> Status: **Active** | Owner: — | Last updated: 2026-03-28
 
 This document is the canonical inventory of everything a user can do with AgentCore. It describes flows from the user's perspective, maps each to the components involved, and tracks end-to-end test coverage. Technical specs describe *how* subsystems work; this PRD describes *what the user experiences*.
 
-## 1. User Personas
+## 1. System Model
 
-| Role | Registration | Tool access | Approval | Description |
-|------|-------------|-------------|----------|-------------|
-| **Admin** | Manual DB entry | All tools | Bypassed | Full control. Manages other users. |
-| **User** | Auto (`AUTO_APPROVE_USERS=true`) or promoted from pending | Standard tools (read + write) | Required for write tools | Normal user with approval-gated write access. |
-| **Pending** | Auto (first message, `AUTO_APPROVE_USERS=false`) | Minimal (`get_current_time` only) | N/A | New, unverified user. Must be promoted to user/admin. |
-| **Blocked** | Manual DB entry | None | N/A | Denied all access. |
+AgentCore is a **single-user, single continuous session** system. One user interacts via one or more adapters (console, Telegram). All adapters share a single conversation history and project context. There are no group chats and no multi-user access control.
+
+The user has access to all tools, with an approval workflow gating destructive operations (write, shell) for safety.
+
+**Note:** The codebase still contains multi-user permission infrastructure (roles, per-user rate limiting, user_aliases table) that predates this model. These are planned for removal — see section 5.
 
 ---
 
@@ -97,23 +96,22 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| WS1 | Initialize workspace state | First substantive interaction with no `project_state` memory | Agent sees bootstrapping hint in prompt, creates `project_state` via `save_memory` | StateBootstrap, PromptBuilder, save_memory | Yes (workspace-state-e2e) |
-| WS2 | Resume from prior session | New session when `project_state` exists | System prompt includes workspace state; agent continues without re-asking context | StateBootstrap, HostDispatcher, PromptBuilder | Yes (workspace-state-e2e) |
+| WS1 | Initialize project state | First interaction in a new project with no `project_state` | Agent sees project hint in prompt, creates `project_state` via `save_memory` (routed to active project) | StateBootstrap, ProjectManager, PromptBuilder, save_memory | Yes (workspace-state-e2e) |
+| WS2 | Resume after conversation reset | After `/new` when a project is active | System prompt includes active project's workspace state; agent continues without re-asking context | StateBootstrap, ProjectManager, HostDispatcher, PromptBuilder | Yes (workspace-state-e2e) |
 | WS3 | Self-audit past decisions | "Why did we choose X?" | Agent searches `decision_journal` via `search_memory`, provides reasoning | MemorySearch, decision_journal convention | No |
-| WS4 | Update project state | Agent completes task or makes decision | Agent calls `save_memory` to update `project_state` and/or append to `decision_journal` | PersistentMemory, save_memory | No |
+| WS4 | Update project state | Agent completes task or makes decision | Agent calls `save_memory` to update `project_state` and/or append to `decision_journal` (routed to active project) | ProjectManager, PersistentMemory, save_memory | No |
+| WS5 | Switch project | `/project panama-trip` | Active project switched; project state injected into system prompt on next turn | ProjectManager, CommandRouter, StateBootstrap | No |
+| WS6 | Agent auto-switches project | User starts discussing a new topic | Agent calls `switch_project` tool; new project's state (or empty state) injected | ProjectManager, switch_project tool, StateBootstrap | No |
+| WS7 | List projects | `/project list` | Lists all projects with active indicator | ProjectManager, CommandRouter | No |
 
-### 2.10 Security & Permissions
+### 2.10 Security & Safety
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| P1 | New user first message | Unknown userId sends message | Auto-registered as pending or user → appropriate tool set | PermissionManager, ToolPolicy | No |
-| P2 | Blocked user | Blocked user sends message | "Access denied" response | PermissionManager | No |
-| P3 | Pending user tries write tool | Pending user asks to write file | Tool not available (minimal profile) → agent can only use get_current_time | ToolPolicy, HostDispatcher | No |
-| P4 | Rate limit exceeded | User sends 21+ messages in 60 seconds | "Rate limit exceeded. Please wait N seconds." | RateLimiter | No |
-| P5 | Approval required | Non-admin invokes write tool | `[APPROVAL_REQUIRED]` → user sends `/approve` → tool executes | ApprovalManager, ToolExecutor, CommandRouter | Yes (approval-flow) |
-| P6 | Approval rejected | Non-admin invokes write tool, rejects | `[APPROVAL_REQUIRED]` → user sends `/reject` → "Rejected" | ApprovalManager, CommandRouter | Yes (approval-flow) |
-| P7 | Admin bypasses approval | Admin invokes write tool | Tool executes immediately, no approval prompt | ApprovalManager | Yes (approval-flow) |
-| P8 | Sandbox violation | Agent tries to access file outside workspace | "Path is outside the workspace" error | Sandbox | Yes (sandbox) |
+| P1 | Rate limit exceeded | User sends 21+ messages in 60 seconds | "Rate limit exceeded. Please wait N seconds." | RateLimiter | No |
+| P2 | Approval required | User invokes write/shell tool | `[APPROVAL_REQUIRED]` → user sends `/approve` → tool executes | ApprovalManager, ToolExecutor, CommandRouter | Yes (approval-flow) |
+| P3 | Approval rejected | User invokes write/shell tool, rejects | `[APPROVAL_REQUIRED]` → user sends `/reject` → "Rejected" | ApprovalManager, CommandRouter | Yes (approval-flow) |
+| P4 | Sandbox violation | Agent tries to access file outside workspace | "Path is outside the workspace" error | Sandbox | Yes (sandbox) |
 
 ### 2.11 Scheduling
 
@@ -127,8 +125,8 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| TG1 | Private message | User sends message in private chat | Session: `telegram:{chatId}`, full access | TelegramAdapter, SessionManager | Yes (pipeline-e2e) |
-| TG2 | Group message | User sends message in group | Session: `telegram:group:{chatId}`, isolated from private | TelegramAdapter, SessionManager | Partial (session-identity unit) |
+| TG1 | Private message | User sends message in Telegram | Message normalized, processed in shared session | TelegramAdapter, SessionManager | Yes (pipeline-e2e) |
+| TG2 | [Removed — no group chats] | — | — | — | — |
 | TG3 | Command with @BotName | `/approve@AgentCoreBot` | @BotName stripped, command recognized | CommandRouter | Yes (context-management, approval-flow) |
 | TG4 | Photo attachment | User sends photo with caption | Photo file_id extracted, caption as content | telegram-normalize | No |
 | TG5 | Document attachment | User sends PDF/file | Document metadata extracted | telegram-normalize | No |
@@ -142,7 +140,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| X1 | Same user, different adapters | User talks via console then Telegram | Same canonical session if aliases configured | SessionManager, user_aliases | No |
+| X1 | Same user, different adapters | User talks via console then Telegram | Same session, shared conversation history and project context | SessionManager | No (**code needs fix: currently per-adapter session IDs**) |
 | X2 | Outbound routing | Response to Telegram user | Message routed to correct adapter by channelId | AdapterRegistry, EventBus | Yes (pipeline-e2e) |
 
 ### 2.14 Error Recovery
@@ -168,25 +166,35 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | Agent Profiles | 5 | 0 | 4 | 1 |
 | Model Switching | 3 | 3 | 0 | 0 |
 | Skills | 2 | 0 | 2 | 0 |
-| Workspace State | 4 | 2 | 0 | 2 |
-| Security & Permissions | 8 | 3 | 0 | 5 |
+| Workspace State & Projects | 7 | 2 | 0 | 5 |
+| Security & Safety | 4 | 2 | 0 | 2 |
 | Scheduling | 3 | 0 | 2 | 1 |
-| Telegram-Specific | 10 | 1 | 1 | 8 |
+| Telegram-Specific | 9 | 1 | 1 | 7 |
 | Cross-Adapter | 2 | 1 | 0 | 1 |
 | Error Recovery | 4 | 1 | 3 | 0 |
-| **Total** | **65** | **25** | **14** | **26** |
-
-**38% fully tested, 22% partially tested, 40% not tested.**
+| **Total** | **63** | **24** | **14** | **25** |
 
 ---
 
 ## 4. Priority for E2E Test Creation
 
 **P0 — Write first** (silent production failures):
-P1, P2, P3, P4 (security flows), TG4-TG6 (attachments), C4 (compaction)
+WS5-WS7 (project switching), X1 (shared session across adapters), C4 (compaction), P1 (rate limiting)
 
 **P1 — Write next** (breaks on real usage):
-A1-A5 (agent profiles), C2/M4 (memory flush), C5/TG7 (streaming), TG2 (group isolation), S5 (timeout)
+A1-A5 (agent profiles), C2/M4 (memory flush), C5/TG7 (streaming), S5 (timeout), TG4-TG6 (attachments)
 
 **P2 — Write eventually** (edge cases):
-TG8-TG10 (chunking, callbacks, markdown), X1 (cross-adapter), T3 (task delivery), E1 (LLM error in pipeline)
+TG8-TG10 (chunking, callbacks, markdown), T3 (task delivery), E1 (LLM error in pipeline)
+
+## 5. Known Code Inconsistencies
+
+The following code still reflects the old multi-user, multi-session model and needs updating:
+
+| Issue | Files | Description |
+|-------|-------|-------------|
+| **Per-adapter session IDs** | `src/core/session-manager.js` | `resolveSessionId` returns `user:{channelId}:{userId}` — should return a single shared session ID for all adapters |
+| **Multi-user permission system** | `src/security/permission-manager.js`, `src/security/tool-policy.js` | Role hierarchy (admin/user/pending/blocked) is dead code for single-user. Simplify to: all tools available, approval workflow for safety. |
+| **Per-user rate limiting** | `src/security/rate-limiter.js` | Rate limiter buckets by userId. Should be a global rate limiter. |
+| **user_aliases table** | `src/db/migrations/002-user-aliases.js` | Migration creates unused `user_aliases` table. Leave in place (safe) but no longer referenced. |
+| **Multi-user security threats** | `spec/99-security-threat-analysis.md` | Several threats marked N/A but the analysis structure still assumes multi-user. |

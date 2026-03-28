@@ -9,7 +9,7 @@ import { MemoryFlusher } from '../brain/memory-flusher.js';
 export class CommandRouter {
   constructor({ sessionManager, conversationMemory, llmProvider, toolExecutor,
                 toolRegistry, promptBuilder, config, eventBus, logger,
-                approvalManager, agentRegistry }) {
+                approvalManager, agentRegistry, projectManager }) {
     this.sessionManager = sessionManager;
     this.conversationMemory = conversationMemory;
     this.llmProvider = llmProvider || null;
@@ -20,6 +20,7 @@ export class CommandRouter {
     this.logger = logger;
     this.approvalManager = approvalManager || null;
     this.agentRegistry = agentRegistry || null;
+    this.projectManager = projectManager || null;
     this.memoryFlusher = (llmProvider && toolExecutor)
       ? new MemoryFlusher(llmProvider, toolExecutor, logger)
       : null;
@@ -51,6 +52,10 @@ export class CommandRouter {
 
     if (content === '/model' || content.startsWith('/model ')) {
       return this._handleModel(sanitizedMessage, content);
+    }
+
+    if (content === '/project' || content.startsWith('/project ')) {
+      return this._handleProject(sanitizedMessage, content);
     }
 
     return { handled: false };
@@ -145,6 +150,53 @@ export class CommandRouter {
     const previous = this.llmProvider.getModel();
     this.llmProvider.setModel(arg);
     this._persistAndRespond(message, `Model switched from **${previous}** to **${arg}**.`);
+    return { handled: true };
+  }
+
+  _handleProject(message, content) {
+    if (!this.projectManager) {
+      this._respond(message, 'Project management is not enabled.');
+      return { handled: true };
+    }
+
+    const arg = content.slice('/project'.length).trim();
+
+    if (!arg) {
+      const active = this.projectManager.getActive();
+      if (active) {
+        this._persistAndRespond(message, `Active project: **${active}**`);
+      } else {
+        this._persistAndRespond(message, 'No active project. Use `/project <name>` to activate one.');
+      }
+      return { handled: true };
+    }
+
+    if (arg === 'list') {
+      const projects = this.projectManager.list();
+      if (projects.length === 0) {
+        this._persistAndRespond(message, 'No projects found. Use `/project <name>` to create one.');
+      } else {
+        const active = this.projectManager.getActive();
+        const list = projects.map(p => `- ${p}${p === active ? ' *(active)*' : ''}`).join('\n');
+        this._persistAndRespond(message, `Projects:\n${list}`);
+      }
+      return { handled: true };
+    }
+
+    if (arg === 'none') {
+      this.projectManager.deactivate();
+      this._persistAndRespond(message, 'Project deactivated.');
+      return { handled: true };
+    }
+
+    const slug = this.projectManager.slugify(arg);
+    if (!slug) {
+      this._respond(message, 'Invalid project name.');
+      return { handled: true };
+    }
+
+    this.projectManager.setActive(slug);
+    this._persistAndRespond(message, `Switched to project: **${slug}**`);
     return { handled: true };
   }
 

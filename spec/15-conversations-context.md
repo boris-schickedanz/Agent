@@ -8,7 +8,7 @@ Add a `/new` command for starting fresh sessions and implement layered context m
 
 ### 1.1 Motivation
 
-The current session model — one continuous history per user — is the right default for a personal agent. Continuity is a feature, not a bug. But two problems remain:
+The current session model — one continuous history — is the right default for a personal agent. Continuity is a feature, not a bug. But two problems remain:
 
 1. **No escape hatch.** When a user wants a genuinely fresh start (new topic, clean slate), there is no way to do it without restarting the agent or manually clearing the DB.
 2. **Context grows unboundedly until compaction.** The only defense is a midpoint-split summarization that fires late and loses nuance. There is no incremental trimming of bloated tool results, and no mechanism to save important facts before they are compacted away.
@@ -338,7 +338,7 @@ No database migration required. The session model is unchanged.
 
 | Decision | Rationale |
 |----------|-----------|
-| Single session per user, no conversation table | A personal agent benefits from continuity. Multi-conversation adds complexity without clear value for the primary use case. `/new` provides an escape hatch when needed. |
+| Single continuous session, no conversation table | A personal agent benefits from continuity. Multi-conversation adds complexity without clear value for the primary use case. `/new` provides an escape hatch when needed. |
 | `/new` clears history rather than creating a new session ID | Keeps session identity stable for routing, message queue keying, and cross-adapter continuity. Only the message history resets. |
 | Host command intercepted before the LLM | `/new` is a deterministic operation. No LLM tokens needed. |
 | Pruning as a separate layer from compaction | Pruning is cheap (string slicing), reversible (DB untouched), and effective for the most common bloat source (tool results). It delays compaction and preserves more conversational context. |

@@ -10,6 +10,7 @@ import { ConversationMemory } from './memory/conversation-memory.js';
 import { PersistentMemory } from './memory/persistent-memory.js';
 import { MemorySearch } from './memory/memory-search.js';
 import { StateBootstrap } from './memory/state-bootstrap.js';
+import { ProjectManager } from './memory/project-manager.js';
 import { SessionManager } from './core/session-manager.js';
 import { MessageQueue } from './core/message-queue.js';
 import { AgentLoop } from './core/agent-loop.js';
@@ -57,21 +58,22 @@ async function main() {
   } else {
     llmProvider = new AnthropicProvider(config, logger);
   }
-  const contextCompactor = new ContextCompactor(llmProvider, config);
+  const contextCompactor = new ContextCompactor(llmProvider, config, logger);
 
   // Phase 3: Memory
   const conversationMemory = new ConversationMemory(db);
   const persistentMemory = new PersistentMemory(config.dataDir, db);
   const memorySearch = new MemorySearch(db);
 
-  // Phase 3b: State bootstrap (Spec 29)
-  const stateBootstrap = new StateBootstrap({ persistentMemory, config, logger });
+  // Phase 3b: Project manager & state bootstrap (Specs 29, 31)
+  const projectManager = new ProjectManager(config.dataDir, db);
+  const stateBootstrap = new StateBootstrap({ persistentMemory, config, logger, projectManager });
 
   // Phase 4: Tools
   const toolRegistry = new ToolRegistry();
   registerSystemTools(toolRegistry);
   registerHttpTools(toolRegistry);
-  registerMemoryTools(toolRegistry, persistentMemory, memorySearch);
+  registerMemoryTools(toolRegistry, persistentMemory, memorySearch, projectManager);
 
   // Phase 4b: Sandbox & Audit
   mkdirSync(config.workspaceDir, { recursive: true });
@@ -175,6 +177,7 @@ async function main() {
     logger,
     approvalManager,
     agentRegistry,
+    projectManager,
   });
 
   // Phase 11: Host Dispatcher

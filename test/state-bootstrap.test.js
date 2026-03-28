@@ -137,6 +137,102 @@ describe('StateBootstrap', () => {
     });
   });
 
+  describe('project-aware scan()', () => {
+    function makeProjectManager(activeSlug = null, projectStores = {}) {
+      return {
+        getActive() { return activeSlug; },
+        getActiveMemory() {
+          if (!activeSlug) return null;
+          const store = projectStores[activeSlug] || {};
+          return {
+            async load(key) { return store[key] || null; },
+            async save(key, content) { store[key] = content; },
+          };
+        },
+        onSwitch() {},
+      };
+    }
+
+    it('loads state from active project when one is set', async () => {
+      const pm = makeProjectManager('panama-trip', {
+        'panama-trip': { project_state: '# Panama Trip\n\n## Current Objective\nPlan the trip' },
+      });
+      const bs = new StateBootstrap({
+        persistentMemory: makePersistentMemory({}),
+        config: { workspaceStateEnabled: true, workspaceStateMaxChars: 3000 },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        projectManager: pm,
+      });
+      const result = await bs.scan();
+      assert.ok(result.includes('Plan the trip'));
+      assert.ok(result.includes('panama-trip'));
+    });
+
+    it('returns hint when no project is active', async () => {
+      const pm = makeProjectManager(null);
+      const bs = new StateBootstrap({
+        persistentMemory: makePersistentMemory({ project_state: '# Global state' }),
+        config: { workspaceStateEnabled: true, workspaceStateMaxChars: 3000 },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        projectManager: pm,
+      });
+      const result = await bs.scan();
+      assert.ok(result.includes('No active project'));
+    });
+
+    it('includes project name in header', async () => {
+      const pm = makeProjectManager('cooking', {
+        'cooking': { project_state: '# Cooking Project' },
+      });
+      const bs = new StateBootstrap({
+        persistentMemory: makePersistentMemory({}),
+        config: { workspaceStateEnabled: true, workspaceStateMaxChars: 3000 },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        projectManager: pm,
+      });
+      const result = await bs.scan();
+      assert.ok(result.includes('Project: cooking'));
+    });
+
+    it('caches per project slug', async () => {
+      let loadCount = 0;
+      const pm = {
+        getActive() { return 'proj-a'; },
+        getActiveMemory() {
+          return {
+            async load(key) {
+              loadCount++;
+              return key === 'project_state' ? '# State A' : null;
+            },
+          };
+        },
+        onSwitch() {},
+      };
+      const bs = new StateBootstrap({
+        persistentMemory: makePersistentMemory({}),
+        config: { workspaceStateEnabled: true, workspaceStateMaxChars: 3000 },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        projectManager: pm,
+      });
+
+      await bs.scan();
+      const countAfterFirst = loadCount;
+      await bs.scan();
+      // Second call should use cache, no additional loads
+      assert.equal(loadCount, countAfterFirst);
+    });
+
+    it('falls back to global state when no projectManager provided', async () => {
+      const bs = new StateBootstrap({
+        persistentMemory: makePersistentMemory({ project_state: '# Global' }),
+        config: { workspaceStateEnabled: true, workspaceStateMaxChars: 3000 },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      });
+      const result = await bs.scan();
+      assert.ok(result.includes('# Global'));
+    });
+  });
+
   describe('_lastSection()', () => {
     it('extracts last ## section', () => {
       const bs = makeBootstrap();

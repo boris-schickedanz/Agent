@@ -126,7 +126,7 @@ All require `Authorization: Bearer {MASTER_KEY}` header.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/status` | Extended agent status with health + config |
-| `GET` | `/api/sessions` | List sessions (last 50, from DB) |
+| `GET` | `/api/sessions` | List sessions (last 50, from DB). Note: single-user system with one continuous session; returns session history. |
 | `GET` | `/api/tools` | Registered tools with name, description, class |
 | `GET` | `/api/skills` | Loaded skills with name, trigger, description |
 | `GET` | `/api/users` | User list with roles (last 100) |

@@ -165,13 +165,14 @@ Unsupported types fall back to `z.any()`.
 ### 3.3 Memory Tools
 
 **File:** `src/tools/built-in/memory-tools.js`
-**Registration:** `registerMemoryTools(registry, persistentMemory, memorySearch)`
+**Registration:** `registerMemoryTools(registry, persistentMemory, memorySearch, projectManager)`
 
 | Tool | Class | Description | Input | Permissions |
 |------|-------|-------------|-------|-------------|
-| `save_memory` | `brokered` | Save to persistent memory | `{ key: string, content: string }` | `memory:write` |
+| `save_memory` | `brokered` | Save to persistent memory. Workspace state keys (`project_state`, `decision_journal`, `session_log`) route to the active project when one exists. | `{ key: string, content: string }` | `memory:write` |
 | `search_memory` | `brokered` | FTS5 search across memories | `{ query: string, limit?: number (1-20, default 5) }` | `memory:read` |
 | `list_memories` | `brokered` | List all memory keys | (none) | `memory:read` |
+| `switch_project` | `brokered` | Switch active project context (creates if new). See [Spec 31](31-multi-project.md). | `{ name: string }` | `memory:write` |
 
 ### 3.4 File System Tools
 

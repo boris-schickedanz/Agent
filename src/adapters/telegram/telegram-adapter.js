@@ -170,7 +170,7 @@ export class TelegramAdapter extends AdapterInterface {
   }
 
   _extractChatId(sessionId) {
-    // sessionId format: "telegram:{chatId}" or "telegram:group:{chatId}"
+    // sessionId format: "telegram:{chatId}"
     const parts = sessionId.split(':');
     return parts[parts.length - 1];
   }

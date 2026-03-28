@@ -133,6 +133,6 @@ const toolExecutor = new ToolExecutor(toolRegistry, toolPolicy, logger, {
 
 - **Persistent approval rules:** Per-user persistent allow/deny per tool (a `tool_approvals` table).
 - **Command pattern approval:** Approve patterns like `npm *` or `git status` instead of blanket tool approval.
-- **Multi-user approval:** In group chats, require approval from a designated approver.
+- ~~**Multi-user approval:**~~ N/A — single-user system, no group chats.
 - **Telegram inline buttons:** Use Telegram's inline keyboard for approve/reject buttons.
 - **Approval timeout:** Auto-reject if no response within N minutes.

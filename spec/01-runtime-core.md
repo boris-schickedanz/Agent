@@ -33,7 +33,7 @@ A lightweight in-process pub/sub system that decouples adapters from the agent l
 **File:** `src/core/message-queue.js`
 **Class:** `MessageQueue`
 
-Ensures execution requests within a single session are processed serially (no interleaving) while different sessions process in parallel.
+Ensures execution requests within the single continuous session are processed serially (no interleaving).
 
 **Interface:**
 
@@ -58,7 +58,7 @@ shutdown(): void
 **File:** `src/core/session-manager.js`
 **Class:** `SessionManager`
 
-Manages session lifecycle. Sessions are keyed by a canonical ID that supports cross-adapter continuity and group chat isolation.
+Manages session lifecycle. Sessions are keyed by a canonical ID that supports cross-adapter continuity.
 
 **Interface:**
 
@@ -73,8 +73,7 @@ appendMessages(sessionId: string, messages: Message[]): void
 
 **Session ID resolution:**
 
-- **Individual chats:** `user:{canonicalUserId}` where `canonicalUserId` is resolved via the `user_aliases` table, falling back to `{channelId}:{adapterUserId}`. Example: `user:telegram:12345`.
-- **Group chats:** `group:{adapter}:{chatId}`. Detected when the adapter's sessionId contains `:group:`. Example: `group:telegram:67890`.
+- `user:{canonicalUserId}` where `canonicalUserId` is resolved via the `user_aliases` table, falling back to `{channelId}:{adapterUserId}`. Example: `user:telegram:12345`.
 
 **Session object shape:**
 
@@ -91,7 +90,7 @@ appendMessages(sessionId: string, messages: Message[]): void
 
 **Behavior:**
 - `resolveCanonicalUserId` checks the `user_aliases` table for cross-adapter identity mapping. Falls back to `channelId:adapterUserId`.
-- `resolveSessionId` routes group messages to group-scoped sessions and individual messages to user-scoped sessions.
+- `resolveSessionId` resolves the canonical session ID for the single user.
 - Sessions are cached in-memory (`Map`) and persisted to the `sessions` SQLite table.
 - `getOrCreate` does an `INSERT ... ON CONFLICT ... DO UPDATE` to upsert the session row.
 - `loadHistory` and `appendMessages` delegate to `ConversationMemory`.
@@ -261,7 +260,7 @@ Triggered by `SIGINT` or `SIGTERM`:
 |----------|-----------|
 | EventBus over direct calls | Decouples adapters from core. Adding a new adapter requires zero changes to the agent loop. |
 | Per-session serial queue | Prevents race conditions from rapid messages by the same user. Different users are not blocked. |
-| Session key = `user:{canonical}` / `group:{adapter}:{chat}` | Supports cross-adapter identity via user_aliases, isolates group chats per channel. |
+| Session key = `user:{canonical}` | Supports cross-adapter identity via user_aliases for the single user. |
 | Console adapter conditional on TTY | Prevents readline EOF crashes under daemon/launchd/nohup. |
 | Max iterations cap | Safety valve against infinite tool loops. Default 25 is generous for complex multi-step tasks. |
 | Dynamic imports for optional modules | Telegram, skills, and heartbeat only load if configured/available. Keeps startup fast. |

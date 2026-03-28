@@ -31,7 +31,7 @@ All adapters MUST normalize inbound messages to this exact shape:
 ```js
 {
   id: string,              // Platform message ID
-  sessionId: string,       // Computed: "{channelId}:{userId}" or "{channelId}:group:{groupId}"
+  sessionId: string,       // Computed: "{channelId}:{chatId}"
   channelId: string,       // Adapter's channelId
   userId: string,          // Platform user ID (string)
   userName: string,        // Display name
@@ -147,7 +147,6 @@ extractAttachments(msg: TelegramMessage): Attachment[]
 
 **Session ID computation:**
 - Private chat: `telegram:{chat.id}`
-- Group/supergroup: `telegram:group:{chat.id}`
 
 **User name:** `msg.from.first_name` + `msg.from.last_name` (space-joined, fallback `'Unknown'`).
 

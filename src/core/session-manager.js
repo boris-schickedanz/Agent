@@ -11,39 +11,16 @@ export class SessionManager {
         ON CONFLICT(id) DO UPDATE SET updated_at = unixepoch()
       `),
       get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
-      getAlias: db.prepare(
-        'SELECT canonical_id FROM user_aliases WHERE adapter_user_id = ? AND channel_id = ?'
-      ),
     };
   }
 
   /**
-   * Resolve an adapter-specific userId to a canonical userId.
-   * Checks user_aliases table; falls back to channelId:adapterUserId.
-   */
-  resolveCanonicalUserId(adapterUserId, channelId) {
-    const row = this._stmts.getAlias.get(adapterUserId, channelId);
-    return row ? row.canonical_id : `${channelId}:${adapterUserId}`;
-  }
-
-  /**
    * Resolve the canonical sessionId from a normalized message.
-   * - Group messages (adapter sessionId contains ":group:"): group:telegram:{chatId}
-   * - Individual messages: user:{canonicalUserId}
+   * Single-user system: all messages map to one session per adapter channel.
    */
   resolveSessionId(normalizedMessage) {
-    const { sessionId, userId, channelId } = normalizedMessage;
-
-    // Group chats stay isolated to their channel
-    if (sessionId && sessionId.includes(':group:')) {
-      // Extract the group portion: "telegram:group:12345" -> "group:telegram:12345"
-      const parts = sessionId.split(':group:');
-      return `group:${parts[0]}:${parts[1]}`;
-    }
-
-    // Individual chats use canonical userId for cross-adapter continuity
-    const canonicalId = this.resolveCanonicalUserId(userId, channelId);
-    return `user:${canonicalId}`;
+    const { userId, channelId } = normalizedMessage;
+    return `user:${channelId}:${userId}`;
   }
 
   getOrCreate(sessionId, userId, channelId, userName = null) {
