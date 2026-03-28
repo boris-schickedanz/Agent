@@ -1,3 +1,5 @@
+export const DEFAULT_SESSION_ID = 'user:default';
+
 export class SessionManager {
   constructor(db, conversationMemory) {
     this.db = db;
@@ -19,7 +21,7 @@ export class SessionManager {
    * Single-user system: all adapters share one session.
    */
   resolveSessionId(_normalizedMessage) {
-    return 'user:default';
+    return DEFAULT_SESSION_ID;
   }
 
   getOrCreate(sessionId, userId, channelId, userName = null) {

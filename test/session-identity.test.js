@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeMessage, normalizeCallbackQuery } from '../src/adapters/telegram/telegram-normalize.js';
-import { SessionManager } from '../src/core/session-manager.js';
+import { SessionManager, DEFAULT_SESSION_ID } from '../src/core/session-manager.js';
 import Database from 'better-sqlite3';
 
 function makeTelegramMsg({ chatId, chatType, userId, text = 'hello' }) {
@@ -83,26 +83,26 @@ describe('SessionManager', () => {
   it('resolveSessionId returns unified session ID for all messages', () => {
     const msg = { sessionId: 'telegram:100', userId: '100', channelId: 'telegram' };
     const sid = sm.resolveSessionId(msg);
-    assert.equal(sid, 'user:default');
+    assert.equal(sid, DEFAULT_SESSION_ID);
   });
 
   it('same user from different adapters gets the same session ID', () => {
     const telegramMsg = { sessionId: 'telegram:100', userId: '100', channelId: 'telegram' };
     const consoleMsg = { sessionId: 'console:user', userId: 'user', channelId: 'console' };
 
-    assert.equal(sm.resolveSessionId(telegramMsg), 'user:default');
-    assert.equal(sm.resolveSessionId(consoleMsg), 'user:default');
+    assert.equal(sm.resolveSessionId(telegramMsg), DEFAULT_SESSION_ID);
+    assert.equal(sm.resolveSessionId(consoleMsg), DEFAULT_SESSION_ID);
   });
 
   it('getOrCreate uses provided sessionId as key', () => {
-    const session = sm.getOrCreate('user:default', 'u1', 'telegram', 'Alice');
-    assert.equal(session.id, 'user:default');
+    const session = sm.getOrCreate(DEFAULT_SESSION_ID, 'u1', 'telegram', 'Alice');
+    assert.equal(session.id, DEFAULT_SESSION_ID);
     assert.equal(session.userId, 'u1');
   });
 
   it('getOrCreate returns cached session on second call', () => {
-    const s1 = sm.getOrCreate('user:default', 'u1', 'telegram', 'Alice');
-    const s2 = sm.getOrCreate('user:default', 'u1', 'telegram', 'Alice');
+    const s1 = sm.getOrCreate(DEFAULT_SESSION_ID, 'u1', 'telegram', 'Alice');
+    const s2 = sm.getOrCreate(DEFAULT_SESSION_ID, 'u1', 'telegram', 'Alice');
     assert.equal(s1, s2);
   });
 

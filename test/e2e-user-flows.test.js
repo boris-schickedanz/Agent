@@ -18,6 +18,7 @@ import { HostDispatcher } from '../src/core/host-dispatcher.js';
 import { MessageQueue } from '../src/core/message-queue.js';
 import { CommandRouter } from '../src/core/command-router.js';
 import { normalizeMessage, extractAttachments } from '../src/adapters/telegram/telegram-normalize.js';
+import { DEFAULT_SESSION_ID } from '../src/core/session-manager.js';
 import { unlinkSync } from 'fs';
 
 const TEST_DB = `.test-e2e-user-flows-${process.pid}.db`;
@@ -114,7 +115,7 @@ function buildPipeline(db, config = {}) {
   const messageQueue = new MessageQueue(runner, logger);
 
   const sessionManager = {
-    resolveSessionId: () => 'user:default',
+    resolveSessionId: () => DEFAULT_SESSION_ID,
     getOrCreate: (sid, uid, cid, uname) => ({
       id: sid, userId: uid, channelId: cid, userName: uname,
       metadata: {}, lastUserMessage: null,
@@ -198,7 +199,7 @@ describe('E2E: Single-user first message', () => {
     const { processMessage, outbound } = buildPipeline(db);
 
     await processMessage({
-      id: 'msg-1', sessionId: 'user:default', channelId: 'telegram',
+      id: 'msg-1', sessionId: DEFAULT_SESSION_ID, channelId: 'telegram',
       userId: 'newuser1', userName: 'New User', content: 'Hello',
     });
 
@@ -228,7 +229,7 @@ describe('E2E: Global rate limiting', () => {
     const { processMessage, outbound } = buildPipeline(db, { rateLimitPerMinute: 2 });
 
     const msg = (id) => ({
-      id, sessionId: 'user:default', channelId: 'telegram',
+      id, sessionId: DEFAULT_SESSION_ID, channelId: 'telegram',
       userId: 'user1', userName: 'User', content: 'Hello',
     });
 
@@ -410,7 +411,7 @@ describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
 
     // Step 1: User asks to write a file → LLM calls write_file → approval required
     await pipeline.processMessage({
-      id: 'msg-1', sessionId: 'user:default', channelId: 'telegram',
+      id: 'msg-1', sessionId: DEFAULT_SESSION_ID, channelId: 'telegram',
       userId: 'user1', userName: 'User', content: 'Create test.txt',
     });
 
@@ -418,13 +419,13 @@ describe('E2E: Approval flow through security pipeline (PRD P5)', () => {
     assert.ok(pipeline.outbound.length >= 1);
 
     // Step 2: Verify pending approval was stored
-    const pending = pipeline.approvalManager.getPending('user:default');
+    const pending = pipeline.approvalManager.getPending(DEFAULT_SESSION_ID);
     assert.ok(pending);
     assert.equal(pending.toolName, 'write_file');
 
     // Step 3: User sends /approve
     await pipeline.processMessage({
-      id: 'msg-2', sessionId: 'user:default', channelId: 'telegram',
+      id: 'msg-2', sessionId: DEFAULT_SESSION_ID, channelId: 'telegram',
       userId: 'user1', userName: 'User', content: '/approve',
     });
 
@@ -457,7 +458,7 @@ describe('E2E: Admin bypass — all tools available (single-user)', () => {
     });
 
     await processMessage({
-      id: 'msg-1', sessionId: 'user:default', channelId: 'console',
+      id: 'msg-1', sessionId: DEFAULT_SESSION_ID, channelId: 'console',
       userId: 'admin1', userName: 'Admin', content: 'Create test.txt',
     });
 
@@ -492,7 +493,7 @@ describe('E2E: LLM error recovery (PRD E1)', () => {
     });
 
     await processMessage({
-      id: 'msg-1', sessionId: 'user:default', channelId: 'telegram',
+      id: 'msg-1', sessionId: DEFAULT_SESSION_ID, channelId: 'telegram',
       userId: 'user1', userName: 'User', content: 'Hello',
     });
 

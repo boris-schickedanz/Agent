@@ -4,6 +4,7 @@ export class RateLimiter {
   constructor(db, config) {
     this.db = db;
     this.limit = config.rateLimitPerMinute;
+    this._lastCleanupWindow = 0;
 
     this._stmts = {
       get: db.prepare(
@@ -17,16 +18,20 @@ export class RateLimiter {
       cleanup: db.prepare(
         'DELETE FROM rate_limits WHERE window_start < ?'
       ),
+      reset: db.prepare(
+        'DELETE FROM rate_limits WHERE user_id = ?'
+      ),
     };
   }
 
-  /**
-   * Try to consume one token from the global rate limit bucket.
-   */
   consume() {
     const now = Math.floor(Date.now() / 60_000);
 
-    this._stmts.cleanup.run(now - 5);
+    // Only run cleanup once per minute-window transition
+    if (now !== this._lastCleanupWindow) {
+      this._stmts.cleanup.run(now - 5);
+      this._lastCleanupWindow = now;
+    }
 
     const row = this._stmts.get.get(GLOBAL_KEY, now);
     const currentCount = row ? row.token_count : 0;
@@ -45,6 +50,6 @@ export class RateLimiter {
   }
 
   reset() {
-    this.db.prepare('DELETE FROM rate_limits WHERE user_id = ?').run(GLOBAL_KEY);
+    this._stmts.reset.run(GLOBAL_KEY);
   }
 }
