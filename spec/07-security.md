@@ -6,6 +6,8 @@
 
 The security system protects the agent from abuse, unauthorized access, and prompt injection. It uses a three-layer model evaluated on every inbound message and tool execution.
 
+> **Single-user model note:** The PRD declares AgentCore as a single-user system ([PRD §1](PRD-Use-Cases.md), [PRD §5](PRD-Use-Cases.md)). The multi-user role hierarchy (admin/user/pending/blocked), per-user rate limiting, and role-based tool policies described below are legacy infrastructure. In the intended single-user model, the approval workflow ([Spec 19](19-approval-workflow.md)) is the primary safety mechanism — not roles. See [Spec 32](32-single-user-migration.md) for the migration plan.
+
 ## 2. Three-Layer Security Model
 
 ```

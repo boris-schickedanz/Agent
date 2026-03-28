@@ -1,5 +1,7 @@
 # Spec 26 — Model Switch Command
 
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
+
 ## Problem
 
 When using Ollama (or Anthropic), the active model is set at startup via environment variables (`OLLAMA_MODEL` / `MODEL`) and frozen in `config.js`. Switching models requires editing `.env` and restarting the process. This is cumbersome when experimenting with different models during a conversation.
