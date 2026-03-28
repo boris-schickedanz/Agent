@@ -86,8 +86,6 @@ export class OnboardWizard {
 
   async _stepSecurity() {
     console.log('\nStep 5/5: Security');
-    const autoApprove = await this._ask('  Auto-approve all users? (y/n) [n]: ') || 'n';
-    this.env.AUTO_APPROVE_USERS = autoApprove.toLowerCase() === 'y' ? 'true' : 'false';
 
     let masterKey = await this._ask('  Master key for dashboard (leave blank to auto-generate): ');
     if (!masterKey) {
