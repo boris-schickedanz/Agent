@@ -43,6 +43,9 @@ export class PromptBuilder {
     if (agentProfile?.name) {
       parts.push(`- Agent Profile: ${agentProfile.name}`);
     }
+    if (session.metadata?.activeModel) {
+      parts.push(`- Model: ${session.metadata.activeModel}`);
+    }
 
     // 3. Relevant memories (use pre-fetched snippets from host; no duplicate search)
     const snippets = memorySnippets && memorySnippets.length > 0 ? memorySnippets : null;

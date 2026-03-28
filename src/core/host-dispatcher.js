@@ -18,6 +18,7 @@ export class HostDispatcher {
     logger,
     config,
     agentRegistry,
+    llmProvider,
   }) {
     this.sessionManager = sessionManager;
     this.toolPolicy = toolPolicy;
@@ -30,6 +31,7 @@ export class HostDispatcher {
     this.logger = logger;
     this.config = config;
     this.agentRegistry = agentRegistry || null;
+    this.llmProvider = llmProvider || null;
   }
 
   /**
@@ -41,6 +43,10 @@ export class HostDispatcher {
       sessionId, sanitizedMessage.userId, sanitizedMessage.channelId, sanitizedMessage.userName
     );
     session.lastUserMessage = sanitizedMessage.content;
+    if (this.llmProvider) {
+      if (!session.metadata) session.metadata = {};
+      session.metadata.activeModel = this.llmProvider.getModel();
+    }
 
     let history = this.sessionManager.loadHistory(sessionId);
     if (this.historyPruner) {

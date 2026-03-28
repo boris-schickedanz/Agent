@@ -204,6 +204,7 @@ describe('CommandRouter', () => {
         conversationMemory: overrides.conversationMemory || {
           clearSession: overrides.clearSession || (() => {}),
           getHistory: () => [],
+          append: () => {},
         },
         llmProvider: overrides.llmProvider || null,
         toolExecutor: overrides.toolExecutor || null,
