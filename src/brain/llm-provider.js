@@ -15,6 +15,14 @@ export class LLMProvider {
     throw new Error('Not implemented');
   }
 
+  getModel() {
+    return this.model || null;
+  }
+
+  setModel(name) {
+    this.model = name;
+  }
+
   estimateTokens(messages) {
     // Rough estimate: ~4 chars per token
     const text = JSON.stringify(messages);

@@ -36,6 +36,7 @@ Specs for the coding companion capabilities. All implemented.
 | [23 — Read/Write Tool Policy](23-read-write-tool-policy.md) | Standard profile allows all tools; write tools gated by approval workflow instead of deny list |
 | [24 — Apple Container Runtime](24-apple-container-runtime.md) | Run entire agent in Apple `container` by default; auto-build, sentinel detection, fallback to direct execution |
 | [25 — Boot Resilience](25-boot-resilience.md) | Retry logic for `container system start` on boot; `ThrottleInterval` in launchd plist to survive post-reboot timing |
+| [26 — Model Switch Command](26-model-switch-command.md) | `/model` command to display or switch the active LLM model at runtime |
 | [Use Cases & PRD](PRD-Use-Cases.md) | Complete user-facing use case inventory, personas, E2E test coverage tracking |
 
 ## Archived
