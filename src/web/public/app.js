@@ -2,7 +2,7 @@ const API_KEY = localStorage.getItem('agentcore_key') || prompt('Enter master ke
 if (API_KEY) localStorage.setItem('agentcore_key', API_KEY);
 
 const content = document.getElementById('content');
-const navLinks = document.querySelectorAll('nav a[data-page]');
+const navLinks = document.querySelectorAll('.lcars-sidebar a[data-page]');
 
 async function api(path) {
   const res = await fetch(path, { headers: { Authorization: `Bearer ${API_KEY}` } });
@@ -55,7 +55,7 @@ function renderCard(title, body) {
 
 function navigate(page, ...args) {
   navLinks.forEach(l => l.classList.remove('active'));
-  const link = document.querySelector(`nav a[data-page="${page}"]`);
+  const link = document.querySelector(`.lcars-sidebar a[data-page="${page}"]`);
   if (link) link.classList.add('active');
   if (pages[page]) pages[page](...args).catch(err => {
     content.innerHTML = `<h2>Error</h2><p>${esc(err.message)}</p>`;
