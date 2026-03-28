@@ -30,6 +30,7 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 | `MODEL` | `model` | string | No | `'claude-sonnet-4-20250514'` | Anthropic model ID (used when provider is `anthropic`) |
 | `OLLAMA_HOST` | `ollamaHost` | string | No | `'http://localhost:11434'` | Ollama API endpoint |
 | `OLLAMA_MODEL` | `ollamaModel` | string | No | `'llama3.1'` | Ollama model name |
+| `OLLAMA_API_KEY` | `ollamaApiKey` | string | No | `''` | API key for Ollama Cloud. When set, sent as Bearer token. Leave empty for local Ollama. |
 | `CONSOLE_USER_ID` | `consoleUserId` | string | No | `'console-user'` | User ID for console adapter sessions |
 | `MAX_TOOL_ITERATIONS` | `maxToolIterations` | number | No | `25` | Maximum ReAct loop iterations per message |
 | `HEARTBEAT_INTERVAL_MINUTES` | `heartbeatIntervalMs` | number | No | `30` | Minutes between heartbeat ticks. Stored as milliseconds internally. `0` disables heartbeat. |

@@ -5,8 +5,17 @@ export class OllamaProvider extends LLMProvider {
     super();
     this.baseUrl = config.ollamaHost || 'http://localhost:11434';
     this.model = config.ollamaModel || 'llama3.1';
+    this.apiKey = config.ollamaApiKey || '';
     this.logger = logger;
     this.maxRetries = 3;
+  }
+
+  _buildHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+    return headers;
   }
 
   get supportsStreaming() {
@@ -40,7 +49,7 @@ export class OllamaProvider extends LLMProvider {
       try {
         const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this._buildHeaders(),
           body: JSON.stringify(body),
         });
 
@@ -93,7 +102,7 @@ export class OllamaProvider extends LLMProvider {
       try {
         const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this._buildHeaders(),
           body: JSON.stringify(body),
         });
 

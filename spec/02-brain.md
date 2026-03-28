@@ -74,11 +74,12 @@ estimateTokens(messages: Message[]): number
 **File:** `src/brain/ollama-provider.js`
 **Class:** `OllamaProvider extends LLMProvider`
 
-Alternative LLM backend for local models. Loaded dynamically when `config.llmProvider === 'ollama'`.
+Alternative LLM backend for local or cloud-hosted Ollama models. Loaded dynamically when `config.llmProvider === 'ollama'`.
 
 **Configuration:**
 - Uses `config.ollamaHost` for API endpoint (default: `http://localhost:11434`)
 - Uses `config.ollamaModel` for model selection (default: `llama3.1`)
+- Uses `config.ollamaApiKey` for optional API authentication (default: empty). When set, sends `Authorization: Bearer <key>` header with requests (required for Ollama Cloud).
 
 **Retry behavior:**
 - Max retries: 3
