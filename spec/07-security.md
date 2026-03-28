@@ -156,9 +156,10 @@ list(): string[]    // Returns service names, NOT keys
 1. rateLimiter.consume()                         // Global rate limit gate
 2. inputSanitizer.sanitize(message)              // Sanitization
 3. inputSanitizer.detectInjection(content)        // Injection detection (log only)
-4. dispatcher.buildRequest(sanitized)             // Host resolves session, tools, memory, skills
-5. messageQueue.enqueue(sessionId, request)       // → runner.execute() → AgentLoop
-6. dispatcher.finalize(request, result, message)  // Guardrails, persistence, delivery
+4. commandRouter.handle(sanitized)               // Intercept /new, /approve, /reject, /agent, /model, /project
+5. dispatcher.buildRequest(sanitized)             // Host resolves session, tools, memory, skills
+6. messageQueue.enqueue(sessionId, request, onStreamEvent)  // → runner.execute() → AgentLoop
+7. dispatcher.finalize(request, result, message)  // Guardrails, persistence, delivery
 ```
 
 Step 1 can reject the message. Rejections emit a `message:outbound` with an error message. Outbound guardrails (step 6) are applied by `HostDispatcher.finalize()`, not inside the agent loop.

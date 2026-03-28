@@ -88,14 +88,14 @@ Every write tool requires approval for each individual execution. There is no se
 
 ## 3. Affected Components
 
+> **Note:** After [Spec 32](32-single-user-migration.md), `ToolPolicy` is a no-arg stub (`isAllowed()` → `true`, `getEffectiveToolNames()` → `null`). The approval workflow in `ApprovalManager` is now the sole safety gate for write tools.
+
 | File | Change |
 |------|--------|
-| `src/security/tool-policy.js` | Update `standard` profile allow list; change `getEffectiveToolNames` to return `{ name, approval }[]`; accept `ApprovalManager` reference |
-| `src/security/approval-manager.js` | Replace `TOOL_APPROVAL_DEFAULTS` map with exported `TOOLS_REQUIRING_APPROVAL` set; remove session cache; expose `requiresApproval(toolName): boolean` method |
-| `src/core/host-dispatcher.js` | Update `buildRequest` to handle new `{ name, approval }[]` shape from `getEffectiveToolNames` |
-| `src/index.js` | Pass `ApprovalManager` to `ToolPolicy` constructor |
-| Spec 07 (Security) | Update §3.2 standard profile table |
-| Spec 19 (Approval Workflow) | Update §3.2 approval defaults table |
+| `src/security/tool-policy.js` | Simplified to always return all tools (single-user model) |
+| `src/security/approval-manager.js` | Exports `TOOLS_REQUIRING_APPROVAL` set; exposes `requiresApproval(toolName): boolean` method |
+| `src/core/host-dispatcher.js` | Handles `null` from `getEffectiveToolNames` (all tools available) |
+| `src/index.js` | `ToolPolicy` constructed with no arguments |
 
 ### 2.5 `getEffectiveToolNames` Behavior
 

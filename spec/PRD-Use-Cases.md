@@ -140,7 +140,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| X1 | Same user, different adapters | User talks via console then Telegram | Same session, shared conversation history and project context | SessionManager | No (**code needs fix: currently per-adapter session IDs**) |
+| X1 | Same user, different adapters | User talks via console then Telegram | Same session, shared conversation history and project context | SessionManager | No (unified session ID — [Spec 32](32-single-user-migration.md)) |
 | X2 | Outbound routing | Response to Telegram user | Message routed to correct adapter by channelId | AdapterRegistry, EventBus | Yes (pipeline-e2e) |
 
 ### 2.14 Error Recovery

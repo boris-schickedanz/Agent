@@ -17,8 +17,8 @@ AgentCore is an autonomous LLM agent that receives messages from multiple channe
                ▼
 ┌──────────────────────────────────┐
 │  Security Pipeline + Commands    │
-│  Rate Limiter → Permissions      │
-│  → Sanitizer → CommandRouter     │
+│  Rate Limiter → Sanitizer        │
+│  → CommandRouter                 │
 │  (/new /approve /reject /agent   │
 │   /model /project)              │
 └──────────────┬───────────────────┘
@@ -242,10 +242,10 @@ agent-core/
 │   │   ├── sandbox.js             # Workspace path confinement
 │   │   ├── audit-logger.js        # Structured tool execution log
 │   │   ├── approval-manager.js    # Interactive tool approval workflow
-│   │   ├── permission-manager.js  # Three-layer authorization
-│   │   ├── rate-limiter.js        # Fixed-window rate limiting
+│   │   ├── permission-manager.js  # Single-user authorization (always allows) + model guardrails
+│   │   ├── rate-limiter.js        # Fixed-window global rate limiting
 │   │   ├── input-sanitizer.js     # Injection detection
-│   │   ├── tool-policy.js         # Role-based tool access (fs/shell/delegation scopes)
+│   │   ├── tool-policy.js         # Single-user model — all tools available
 │   │   └── api-key-store.js       # AES-256-GCM key storage
 │   ├── web/
 │   │   ├── health.js              # GET /health, GET /status

@@ -88,8 +88,7 @@ appendMessages(sessionId: string, messages: Message[]): void
 ```
 
 **Behavior:**
-- `resolveCanonicalUserId` checks the `user_aliases` table for cross-adapter identity mapping. Falls back to `channelId:adapterUserId`.
-- `resolveSessionId` resolves the canonical session ID for the single user.
+- `resolveSessionId` always returns `'user:default'` — all adapters share one session.
 - Sessions are cached in-memory (`Map`) and persisted to the `sessions` SQLite table.
 - `getOrCreate` does an `INSERT ... ON CONFLICT ... DO UPDATE` to upsert the session row.
 - `loadHistory` and `appendMessages` delegate to `ConversationMemory`.
