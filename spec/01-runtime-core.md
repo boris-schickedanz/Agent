@@ -219,7 +219,7 @@ Defined in `src/index.js`. Components are instantiated in strict dependency orde
 11. LocalRunner (wraps AgentLoop)
 12. MessageQueue (accepts runner)
 13. Skill Loader (optional, loaded before dispatcher)
-14. Command Router (handles `/new`, `/approve`, `/reject`, `/agent`, etc.)
+14. Command Router (handles `/new`, `/approve`, `/reject`, `/agent`, `/model`, `/project`)
 15. Host Dispatcher (owns session/tool/memory/skill resolution, pruning, and finalization)
 16. Event bus wiring (`message:inbound` handler with security pipeline + command routing + streaming)
 17. Adapter Registry + adapter registration (Telegram if configured, Console if TTY)
@@ -235,7 +235,7 @@ message:inbound
   → permissionManager.checkAccess(userId, channelId)  — reject if blocked
   → inputSanitizer.sanitize(message)         — strip dangerous content
   → inputSanitizer.detectInjection(content)  — soft check, log only
-  → commandRouter.handle(sanitized)          — intercept /new, /approve, /reject, /agent etc.
+  → commandRouter.handle(sanitized)          — intercept /new, /approve, /reject, /agent, /model, /project
   → await dispatcher.buildRequest(sanitized)  — resolve session, tools, memory, skills, workspace state, prune history
   → onStreamEvent callback created           — bridges AgentLoop streaming to EventBus
   → messageQueue.enqueue(sessionId, request, onStreamEvent) — per-session serialization → runner.execute()

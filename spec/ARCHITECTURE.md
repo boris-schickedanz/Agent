@@ -19,7 +19,8 @@ AgentCore is an autonomous LLM agent that receives messages from multiple channe
 │  Security Pipeline + Commands    │
 │  Rate Limiter → Permissions      │
 │  → Sanitizer → CommandRouter     │
-│    (/new /approve /reject /agent)│
+│  (/new /approve /reject /agent   │
+│   /model /project)              │
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐

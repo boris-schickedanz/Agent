@@ -26,7 +26,7 @@ Start with specs 01 and 10 for the overall architecture, then read subsystem spe
 
 ## Coding Companion
 
-Specs for the coding companion capabilities. All implemented.
+Specs for the coding companion capabilities.
 
 | Spec | Scope |
 |------|-------|
@@ -42,10 +42,17 @@ Specs for the coding companion capabilities. All implemented.
 | [25 — Boot Resilience](25-boot-resilience.md) | Retry logic for `container system start` on boot; `ThrottleInterval` in launchd plist to survive post-reboot timing |
 | [26 — Model Switch Command](26-model-switch-command.md) | `/model` command to display or switch the active LLM model at runtime |
 | [27 — Command Context Persistence](27-command-context-persistence.md) | Persist `/model` and `/agent` command exchanges to history; include active model in system prompt |
-| [28 — Lean System Prompt & Dynamic Tool Resolution](28-lean-system-prompt.md) | Two-tier tool resolution (core vs deferred), meta-tools (get_tool_details, get_agent_info), system prompt optimization |
 | [29 — Persistent Workspace State](29-persistent-workspace-state.md) | Well-known memory keys for project state, decision journal, session log; state bootstrap injection into system prompt; continuation protocol |
 | [31 — Multi-Project Support](31-multi-project.md) | Named project contexts with switching; active project state injection; `/project` command and `switch_project` tool |
 | [Use Cases & PRD](PRD-Use-Cases.md) | Complete user-facing use case inventory, personas, E2E test coverage tracking |
+
+## Draft
+
+Specs not yet implemented. These describe planned features and should not be treated as describing current behavior.
+
+| Spec | Scope |
+|------|-------|
+| [28 — Lean System Prompt & Dynamic Tool Resolution](28-lean-system-prompt.md) | Two-tier tool resolution (core vs deferred), meta-tools (get_tool_details, get_agent_info), system prompt optimization |
 
 ## Archived
 

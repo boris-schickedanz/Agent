@@ -1,4 +1,4 @@
-# Spec 24 — Use Cases & Product Requirements
+# Use Cases & Product Requirements (PRD)
 
 > Status: **Active** | Owner: — | Last updated: 2026-03-28
 
