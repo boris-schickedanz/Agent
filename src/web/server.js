@@ -17,6 +17,8 @@ export class DashboardServer extends HealthServer {
     this.auditLogger = opts.auditLogger || null;
     this.scheduler = opts.scheduler || null;
     this.agentRegistry = opts.agentRegistry || null;
+    this.persistentMemory = opts.persistentMemory || null;
+    this.conversationMemory = opts.conversationMemory || null;
     this.publicDir = resolve('src/web/public');
   }
 
@@ -49,6 +51,17 @@ export class DashboardServer extends HealthServer {
 
     const url = req.url.split('?')[0];
 
+    // Parameterized routes (check before exact matches)
+    const sessionsMatch = url.match(/^\/api\/sessions\/(.+)\/messages$/);
+    if (sessionsMatch) {
+      return this._apiSessionMessages(req, res, decodeURIComponent(sessionsMatch[1]));
+    }
+
+    const memoryKeyMatch = url.match(/^\/api\/memory\/(.+)$/);
+    if (memoryKeyMatch) {
+      return this._apiMemoryDetail(req, res, decodeURIComponent(memoryKeyMatch[1]));
+    }
+
     const routes = {
       '/api/status': () => this._apiStatus(req, res),
       '/api/sessions': () => this._apiSessions(req, res),
@@ -59,6 +72,8 @@ export class DashboardServer extends HealthServer {
       '/api/config': () => this._apiConfig(req, res),
       '/api/tasks': () => this._apiTasks(req, res),
       '/api/agents': () => this._apiAgents(req, res),
+      '/api/memory': () => this._apiMemoryList(req, res),
+      '/api/workspace-state': () => this._apiWorkspaceState(req, res),
     };
 
     const handler = routes[url];
@@ -117,6 +132,71 @@ export class DashboardServer extends HealthServer {
     } catch {
       this._json(res, []);
     }
+  }
+
+  _apiSessionMessages(req, res, sessionId) {
+    try {
+      const messages = this.db.prepare(
+        'SELECT role, content, token_estimate, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 200'
+      ).all(sessionId);
+      const parsed = messages.map(m => ({
+        role: m.role,
+        content: this._tryParseJson(m.content),
+        token_estimate: m.token_estimate,
+        created_at: m.created_at,
+      }));
+      this._json(res, parsed);
+    } catch {
+      this._json(res, []);
+    }
+  }
+
+  async _apiMemoryList(req, res) {
+    if (!this.persistentMemory) {
+      this._json(res, []);
+      return;
+    }
+    try {
+      const keys = await this.persistentMemory.list();
+      this._json(res, keys);
+    } catch {
+      this._json(res, []);
+    }
+  }
+
+  async _apiMemoryDetail(req, res, key) {
+    if (!this.persistentMemory) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Memory not available' }));
+      return;
+    }
+    try {
+      const content = await this.persistentMemory.load(key);
+      if (content === null) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Memory key not found' }));
+        return;
+      }
+      this._json(res, { key, content });
+    } catch {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to load memory' }));
+    }
+  }
+
+  async _apiWorkspaceState(req, res) {
+    if (!this.persistentMemory) {
+      this._json(res, { project_state: null, decision_journal: null, session_log: null });
+      return;
+    }
+    const load = async (key) => {
+      try { return await this.persistentMemory.load(key); } catch { return null; }
+    };
+    this._json(res, {
+      project_state: await load('project_state'),
+      decision_journal: await load('decision_journal'),
+      session_log: await load('session_log'),
+    });
   }
 
   _apiTools(req, res) {
@@ -182,5 +262,9 @@ export class DashboardServer extends HealthServer {
   _json(res, data) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
+  }
+
+  _tryParseJson(str) {
+    try { return JSON.parse(str); } catch { return str; }
   }
 }

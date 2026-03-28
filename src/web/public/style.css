@@ -92,6 +92,10 @@ th {
 .badge-warn { background: #4d3e0a; color: #ff9800; }
 .badge-err { background: #4d0a0a; color: #f44336; }
 
+.badge-role-user { background: #0a3d4d; color: #53a8b6; }
+.badge-role-assistant { background: #2d1a4d; color: #b39ddb; }
+.badge-role-system { background: #4d3e0a; color: #ff9800; }
+
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -117,6 +121,133 @@ th {
   font-size: 0.85rem;
   color: #a0a0b0;
   margin-top: 0.3rem;
+}
+
+/* Clickable rows */
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clickable-row:hover {
+  background: #1e2a4a;
+}
+
+/* Back link */
+.back-link {
+  color: #53a8b6;
+  text-decoration: none;
+  font-size: 0.9rem;
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+.back-link:hover {
+  color: #fff;
+}
+
+/* Messages */
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.message {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 1rem;
+  border-left: 3px solid #0f3460;
+}
+
+.message-user { border-left-color: #53a8b6; }
+.message-assistant { border-left-color: #b39ddb; }
+.message-system { border-left-color: #ff9800; }
+
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.message-time {
+  color: #a0a0b0;
+}
+
+.message-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.tool-call {
+  background: #1a2440;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.tool-call strong {
+  color: #53a8b6;
+}
+
+.tool-result {
+  background: #1a2420;
+  border: 1px solid #1a4d1a;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.tool-call pre, .tool-result pre {
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+  overflow-x: auto;
+}
+
+/* Memory */
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.memory-item {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.memory-key {
+  font-weight: 600;
+  color: #53a8b6;
+}
+
+.memory-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.muted {
+  color: #a0a0b0;
+  font-size: 0.9rem;
+}
+
+pre {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
 @media (max-width: 768px) {
