@@ -72,19 +72,19 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| A1 | Switch agent | `/agent coder` | Session binds to coder profile: custom soul, model, tool whitelist | CommandRouter, AgentRegistry, SessionManager | No |
-| A2 | List agents | `/agent list` | Returns list of available profiles with descriptions | CommandRouter, AgentRegistry | No |
-| A3 | Reset to default | `/agent default` | Session reverts to SOUL.md, default tools | CommandRouter, SessionManager | No |
-| A4 | Unknown agent | `/agent nonexistent` | Error: "Agent profile not found" | CommandRouter, AgentRegistry | No |
+| A1 | Switch agent | `/agent coder` | Session binds to coder profile; persisted to history | CommandRouter, AgentRegistry, SessionManager, ConversationMemory | Partial (command-context) |
+| A2 | List agents | `/agent list` | Returns list of available profiles with descriptions (not persisted) | CommandRouter, AgentRegistry | Partial (command-context) |
+| A3 | Reset to default | `/agent default` | Session reverts to SOUL.md, default tools; persisted to history | CommandRouter, SessionManager, ConversationMemory | Partial (command-context) |
+| A4 | Unknown agent | `/agent nonexistent` | Error: "Agent profile not found" (not persisted) | CommandRouter, AgentRegistry | Partial (command-context) |
 | A5 | Agent tool whitelist | Message after `/agent coder` | Only tools in profile's whitelist are available | HostDispatcher, ToolPolicy | No |
 
 ### 2.7 Model Switching
 
 | # | Use Case | Trigger | Expected Behavior | Components | E2E Tested |
 |---|----------|---------|-------------------|------------|------------|
-| L1 | Show current model | `/model` | Displays the active LLM model name | CommandRouter, LLMProvider | Yes (model-command) |
-| L2 | Switch model | `/model qwen2` | Model switched, confirmation with old → new names | CommandRouter, LLMProvider | Yes (model-command) |
-| L3 | Switch model (no provider) | `/model` when llmProvider unavailable | Error: "LLM provider is not available" | CommandRouter | Yes (model-command) |
+| L1 | Show current model | `/model` | Displays the active LLM model name; persisted to history | CommandRouter, LLMProvider, ConversationMemory | Yes (model-command, command-context) |
+| L2 | Switch model | `/model qwen2` | Model switched, confirmation with old → new names; persisted to history | CommandRouter, LLMProvider, ConversationMemory | Yes (model-command, command-context) |
+| L3 | Switch model (no provider) | `/model` when llmProvider unavailable | Error: "LLM provider is not available" (not persisted) | CommandRouter | Yes (model-command, command-context) |
 
 ### 2.8 Skills
 
@@ -156,7 +156,7 @@ Each use case lists: trigger, expected behavior, key components, and E2E test st
 | Shell & Process | 5 | 4 | 0 | 1 |
 | Memory & Knowledge | 4 | 0 | 4 | 0 |
 | Delegation | 4 | 4 | 0 | 0 |
-| Agent Profiles | 5 | 0 | 0 | 5 |
+| Agent Profiles | 5 | 0 | 4 | 1 |
 | Model Switching | 3 | 3 | 0 | 0 |
 | Skills | 2 | 0 | 2 | 0 |
 | Security & Permissions | 8 | 3 | 0 | 5 |

@@ -1,6 +1,6 @@
 # Spec 27 — Command Context Persistence
 
-> Status: **Proposed** | Owner: — | Last updated: 2026-03-28
+> Status: **Implemented** | Owner: — | Last updated: 2026-03-28
 
 ## Problem
 
