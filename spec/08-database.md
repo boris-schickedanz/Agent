@@ -122,7 +122,7 @@ CREATE VIRTUAL TABLE memory_fts USING fts5(
 
 ### 4.4 Users
 
-User identity and role management.
+User identity table. Retained for backward compatibility (no destructive migrations) but no longer actively written to or read from in the single-user model ([Spec 32](32-single-user-migration.md)). The `ApprovalManager` reads the `role` column to determine admin bypass for the approval workflow.
 
 ```sql
 CREATE TABLE users (

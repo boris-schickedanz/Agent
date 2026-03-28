@@ -77,7 +77,7 @@ The config object is `Object.freeze()`'d to prevent accidental mutation.
 - `DATA_DIR` and `WORKSPACE_DIR` are resolved to absolute paths via `path.resolve()`.
 - `HEARTBEAT_INTERVAL_MINUTES` is converted to milliseconds: `value * 60_000`.
 - `DEFAULT_SHELL_TIMEOUT_SECONDS` is converted to milliseconds: `value * 1000`.
-- `AUTO_APPROVE_USERS`: `'true'` → boolean `true`, `'false'`/empty → boolean `false`, any other value → split on `,` to produce a string array of approved user IDs.
+- `AUTO_APPROVE_USERS`: Removed in [Spec 32](32-single-user-migration.md). If set in `.env`, it is silently ignored.
 
 ## 5. .env.example
 

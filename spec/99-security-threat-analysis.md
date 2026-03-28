@@ -1,6 +1,8 @@
 # Spec 26 — Security Threat Analysis
 
-> Status: **Draft** | Owner: — | Last updated: 2026-03-27
+> Status: **Draft** | Owner: — | Last updated: 2026-03-28
+
+> **Post-migration note ([Spec 32](32-single-user-migration.md)):** This threat analysis was written before the single-user model migration. Threats referencing `AUTO_APPROVE_USERS`, per-user role escalation, role-based tool profiles, and multi-user access control (A1, A2, A4) are **no longer applicable** — AgentCore is now a single-user system where the approval workflow is the primary safety mechanism. These threats are retained for historical context but should not be treated as current vulnerabilities.
 
 ## 1. Purpose
 
