@@ -162,7 +162,7 @@ list(): string[]    // Returns service names, NOT keys
 7. dispatcher.finalize(request, result, message)  // Guardrails, persistence, delivery
 ```
 
-Step 1 can reject the message. Rejections emit a `message:outbound` with an error message. Outbound guardrails (step 6) are applied by `HostDispatcher.finalize()`, not inside the agent loop.
+Step 1 can reject the message with a `message:outbound` error. Step 4 can consume the message (handled commands don't reach the LLM). Errors in steps 5-7 are caught and logged. Outbound guardrails (step 7) are applied by `HostDispatcher.finalize()`, not inside the agent loop.
 
 ## 5. Design Decisions
 
