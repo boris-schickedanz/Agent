@@ -20,11 +20,9 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch, pr
       required: ['key', 'content'],
     },
     handler: async (input) => {
-      const memory = _resolveMemory(input.key, persistentMemory, projectManager);
+      const { memory, activeSlug } = _resolveMemory(input.key, persistentMemory, projectManager);
       await memory.save(input.key, input.content);
-      const projectNote = (WORKSPACE_STATE_KEYS.has(input.key) && projectManager?.getActive())
-        ? ` (project: ${projectManager.getActive()})`
-        : '';
+      const projectNote = activeSlug ? ` (project: ${activeSlug})` : '';
       return `Memory saved with key: ${input.key}${projectNote}`;
     },
     permissions: ['memory:write'],
@@ -97,7 +95,7 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch, pr
         const slug = projectManager.slugify(input.name);
         if (!slug) return 'Error: project name is empty after slugification.';
         projectManager.setActive(slug);
-        const mem = projectManager.getActiveMemory();
+        const mem = projectManager.getMemory(slug);
         const state = await mem.load('project_state');
         if (state) {
           return `Switched to project: ${slug} (existing project with state)`;
@@ -111,8 +109,10 @@ export function registerMemoryTools(registry, persistentMemory, memorySearch, pr
 
 function _resolveMemory(key, globalMemory, projectManager) {
   if (WORKSPACE_STATE_KEYS.has(key) && projectManager) {
-    const activeMem = projectManager.getActiveMemory();
-    if (activeMem) return activeMem;
+    const activeSlug = projectManager.getActive();
+    if (activeSlug) {
+      return { memory: projectManager.getMemory(activeSlug), activeSlug };
+    }
   }
-  return globalMemory;
+  return { memory: globalMemory, activeSlug: null };
 }

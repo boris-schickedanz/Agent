@@ -149,6 +149,7 @@ describe('StateBootstrap', () => {
             async save(key, content) { store[key] = content; },
           };
         },
+        onSwitch() {},
       };
     }
 
@@ -205,6 +206,7 @@ describe('StateBootstrap', () => {
             },
           };
         },
+        onSwitch() {},
       };
       const bs = new StateBootstrap({
         persistentMemory: makePersistentMemory({}),

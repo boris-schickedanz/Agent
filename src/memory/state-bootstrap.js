@@ -13,15 +13,20 @@
 
 const CACHE_TTL_MS = 60_000; // 1 minute
 const MAX_CACHE_ENTRIES = 50;
+const NO_OP_LOGGER = { info() {}, warn() {}, error() {} };
 
 export class StateBootstrap {
   constructor({ persistentMemory, config, logger, projectManager = null }) {
     this.persistentMemory = persistentMemory;
     this.config = config;
-    this.logger = logger;
+    this.logger = logger || NO_OP_LOGGER;
     this.projectManager = projectManager;
-    this._cache = new Map();       // keyed by project slug (or '__global__')
-    this._cacheTimestamps = new Map();
+    this._cache = new Map(); // key -> { value, timestamp }
+
+    // Invalidate cache when the active project changes
+    if (projectManager) {
+      projectManager.onSwitch(() => this._cache.clear());
+    }
   }
 
   /**
@@ -32,18 +37,17 @@ export class StateBootstrap {
   async scan() {
     if (!this.config.workspaceStateEnabled) return null;
 
-    // Determine which project (if any) is active
     const activeSlug = this.projectManager ? this.projectManager.getActive() : null;
     const cacheKey = activeSlug || '__global__';
 
     const now = Date.now();
-    if (this._cache.has(cacheKey) && (now - this._cacheTimestamps.get(cacheKey)) < CACHE_TTL_MS) {
-      return this._cache.get(cacheKey);
+    const cached = this._cache.get(cacheKey);
+    if (cached && (now - cached.timestamp) < CACHE_TTL_MS) {
+      return cached.value;
     }
 
     let result;
     if (this.projectManager && !activeSlug) {
-      // ProjectManager exists but no project is active
       result = '[No active project. Use /project <name> to activate one, or tell me what you\'re working on and I\'ll set one up.]';
     } else {
       const memory = activeSlug
@@ -56,17 +60,13 @@ export class StateBootstrap {
     if (this._cache.size >= MAX_CACHE_ENTRIES && !this._cache.has(cacheKey)) {
       let oldestKey = null;
       let oldestTime = Infinity;
-      for (const [k, t] of this._cacheTimestamps) {
-        if (t < oldestTime) { oldestTime = t; oldestKey = k; }
+      for (const [k, entry] of this._cache) {
+        if (entry.timestamp < oldestTime) { oldestTime = entry.timestamp; oldestKey = k; }
       }
-      if (oldestKey) {
-        this._cache.delete(oldestKey);
-        this._cacheTimestamps.delete(oldestKey);
-      }
+      if (oldestKey) this._cache.delete(oldestKey);
     }
 
-    this._cache.set(cacheKey, result);
-    this._cacheTimestamps.set(cacheKey, now);
+    this._cache.set(cacheKey, { value: result, timestamp: now });
     return result;
   }
 

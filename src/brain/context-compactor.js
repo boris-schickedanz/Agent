@@ -1,9 +1,11 @@
+const NO_OP_LOGGER = { info() {}, warn() {}, error() {} };
+
 export class ContextCompactor {
   constructor(llmProvider, config, logger = null) {
     this.llmProvider = llmProvider;
     this.threshold = config.compactionThreshold;
     this.retainMessages = config.compactionRetainMessages ?? 10;
-    this.logger = logger;
+    this.logger = logger || NO_OP_LOGGER;
   }
 
   shouldCompact(messages) {
@@ -44,10 +46,8 @@ export class ContextCompactor {
         ...recentMessages,
       ];
     } catch (err) {
-      if (this.logger) {
-        this.logger.warn({ err: err.message, droppedMessages: olderMessages.length },
-          'Context summarization failed; older messages dropped');
-      }
+      this.logger.warn({ err: err.message, droppedMessages: olderMessages.length },
+        'Context summarization failed; older messages dropped');
       return [
         { role: 'user', content: '[Previous conversation summary]: [Summarization failed. Some earlier context may be missing.]' },
         ...recentMessages,
