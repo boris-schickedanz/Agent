@@ -2,6 +2,8 @@
 
 Authoritative design documents for every subsystem. These are the single source of truth for development.
 
+**Start here:** [ARCHITECTURE.md](ARCHITECTURE.md) — high-level overview of all subsystems, message flow, and project structure.
+
 ## Reading Order
 
 Start with specs 01 and 10 for the overall architecture, then read subsystem specs as needed.
