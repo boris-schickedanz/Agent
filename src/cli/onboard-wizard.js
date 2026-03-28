@@ -31,7 +31,7 @@ export class OnboardWizard {
   async _stepProvider() {
     console.log('Step 1/5: LLM Provider');
     const choice = await this._choose(
-      '  Choose: [1] Anthropic (recommended) [2] Ollama (local)',
+      '  Choose: [1] Anthropic (recommended) [2] Ollama',
       ['1', '2'],
       '1'
     );
@@ -40,6 +40,8 @@ export class OnboardWizard {
       this.env.LLM_PROVIDER = 'ollama';
       const host = await this._ask('  Ollama host [http://localhost:11434]: ') || 'http://localhost:11434';
       this.env.OLLAMA_HOST = host;
+      const apiKey = await this._ask('  Ollama API key (leave blank for local): ');
+      if (apiKey) this.env.OLLAMA_API_KEY = apiKey;
     } else {
       this.env.LLM_PROVIDER = 'anthropic';
       const key = await this._ask('  Enter your Anthropic API key: ');
