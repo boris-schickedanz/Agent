@@ -19,7 +19,7 @@ describe('/model command', () => {
 
   const makeRouter = (llmProvider) => new CommandRouter({
     sessionManager: { resolveSessionId: () => 'session1' },
-    conversationMemory: { clearSession: () => {}, getHistory: () => [] },
+    conversationMemory: { clearSession: () => {}, getHistory: () => [], append: () => {} },
     config: { compactionMemoryFlush: false },
     eventBus,
     logger: { info: () => {}, warn: () => {}, error: () => {} },

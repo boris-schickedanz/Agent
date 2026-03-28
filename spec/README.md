@@ -37,6 +37,7 @@ Specs for the coding companion capabilities. All implemented.
 | [24 — Apple Container Runtime](24-apple-container-runtime.md) | Run entire agent in Apple `container` by default; auto-build, sentinel detection, fallback to direct execution |
 | [25 — Boot Resilience](25-boot-resilience.md) | Retry logic for `container system start` on boot; `ThrottleInterval` in launchd plist to survive post-reboot timing |
 | [26 — Model Switch Command](26-model-switch-command.md) | `/model` command to display or switch the active LLM model at runtime |
+| [27 — Command Context Persistence](27-command-context-persistence.md) | Persist `/model` and `/agent` command exchanges to history; include active model in system prompt |
 | [Use Cases & PRD](PRD-Use-Cases.md) | Complete user-facing use case inventory, personas, E2E test coverage tracking |
 
 ## Archived

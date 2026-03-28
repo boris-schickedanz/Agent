@@ -109,7 +109,7 @@ export class CommandRouter {
       if (session.metadata) {
         delete session.metadata.agentName;
       }
-      this._respond(message, 'Switched to default agent.');
+      this._persistAndRespond(message, 'Switched to default agent.');
       return { handled: true };
     }
 
@@ -124,7 +124,7 @@ export class CommandRouter {
     if (!session.metadata) session.metadata = {};
     session.metadata.agentName = agentName;
 
-    this._respond(message, `Switched to agent: **${profile.name}** — ${profile.description}`);
+    this._persistAndRespond(message, `Switched to agent: **${profile.name}** — ${profile.description}`);
     return { handled: true };
   }
 
@@ -138,13 +138,13 @@ export class CommandRouter {
 
     if (!arg) {
       const current = this.llmProvider.getModel();
-      this._respond(message, `Current model: **${current || 'unknown'}**`);
+      this._persistAndRespond(message, `Current model: **${current || 'unknown'}**`);
       return { handled: true };
     }
 
     const previous = this.llmProvider.getModel();
     this.llmProvider.setModel(arg);
-    this._respond(message, `Model switched from **${previous}** to **${arg}**.`);
+    this._persistAndRespond(message, `Model switched from **${previous}** to **${arg}**.`);
     return { handled: true };
   }
 
@@ -211,6 +211,13 @@ export class CommandRouter {
     } catch (err) {
       this.logger.warn({ err: err.message }, 'Memory flush before /new failed, proceeding with clear');
     }
+  }
+
+  _persistAndRespond(message, text) {
+    const sessionId = this.sessionManager.resolveSessionId(message);
+    this.conversationMemory.append(sessionId, 'user', message.content);
+    this.conversationMemory.append(sessionId, 'assistant', text);
+    this._respond(message, text);
   }
 
   _respond(message, text) {

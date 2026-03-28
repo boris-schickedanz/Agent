@@ -32,9 +32,9 @@ Both `OllamaProvider` and `AnthropicProvider` already store the model as `this.m
 
 The command does **not** verify whether the model exists on the Ollama server or Anthropic API. The next LLM call will surface any errors naturally. This avoids async API calls in the synchronous command path.
 
-### No persistence
+### Persistence
 
-The switch is ephemeral — it lives only in the provider's instance property. A restart reverts to the configured default. This matches `/agent`, which also stores state only in memory.
+The model switch itself is ephemeral — it lives only in the provider's instance property. A restart reverts to the configured default. However, the command exchange (user command + bot response) is persisted to conversation history so the agent retains context about the change. The active model name is also injected into the system prompt. See [Spec 27](27-command-context-persistence.md).
 
 ## Affected Components
 

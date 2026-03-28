@@ -186,6 +186,7 @@ async function main() {
     logger,
     config,
     agentRegistry,
+    llmProvider,
   });
 
   // Phase 12: Wire event bus — inbound message processing

@@ -111,7 +111,7 @@ Note: `availableTools` is accepted for interface consistency but not currently u
 **Assembly order (each section separated by newline):**
 
 1. **Agent personality** — contents of `SOUL.md` (cached after first read, falls back to a default string if file missing). If the session has an active agent profile with a custom `soul`, that is used instead.
-2. **Current context** — date/time (ISO), user name, channel, and (if active) agent profile name
+2. **Current context** — date/time (ISO), user name, channel, (if active) agent profile name, and active model name (see [Spec 27](27-command-context-persistence.md))
 3. **Relevant memories** — pre-searched by the host (`HostDispatcher`) and passed as `memorySnippets`. Each snippet is truncated to 300 chars by the host before inclusion.
 4. **Skill instructions** — optional, injected when a skill is active
 

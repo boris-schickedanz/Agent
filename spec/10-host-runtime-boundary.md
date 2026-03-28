@@ -23,7 +23,7 @@ Define the architectural split between the **host** (control plane) and the **ru
 | Adapter lifecycle (start/stop) | Host | `AdapterRegistry` |
 | Inbound message normalization | Host | Adapters |
 | Security pipeline (rate limit, permissions, sanitization) | Host | `index.js` event handler |
-| Host command interception (`/new`) | Host | `CommandRouter` |
+| Host command interception (`/new`, `/model`, `/agent`) | Host | `CommandRouter` (state-changing commands persist to history, [Spec 27](27-command-context-persistence.md)) |
 | Message queueing and per-session serialization | Host | `MessageQueue` |
 | Session resolution and creation | Host | `HostDispatcher` → `SessionManager` |
 | Conversation history loading | Host | `HostDispatcher` → `SessionManager` |
@@ -55,6 +55,7 @@ Adapter → EventBus(message:inbound) → Security Pipeline
                                            ↓
                                     HostDispatcher.buildRequest()
                                       Session resolution
+                                      Active model injection (Spec 27)
                                       History loading
                                       History pruning (trim tool results)
                                       Tool resolution
@@ -231,7 +232,7 @@ Extracts host concerns into a single orchestration point. Two methods: `buildReq
 new HostDispatcher({
   sessionManager, toolPolicy, toolRegistry, memorySearch,
   skillLoader, permissionManager, historyPruner,
-  eventBus, logger, config,
+  eventBus, logger, config, llmProvider,
 })
 ```
 
@@ -287,7 +288,9 @@ When delegated agent dispatch is introduced:
 | During execution | Nothing | Runtime operates on in-memory data only |
 | After execution | New messages (with guardrailed content) | `HostDispatcher` → `SessionManager` |
 
-**Exception:** `save_memory` tool writes to persistent memory during execution via its handler closure. This is a brokered tool concern — see [Spec 03 §5](03-tools.md).
+**Exceptions:**
+- `save_memory` tool writes to persistent memory during execution via its handler closure. This is a brokered tool concern — see [Spec 03 §5](03-tools.md).
+- State-changing commands (`/model`, `/agent`) persist their exchanges to conversation history directly from `CommandRouter`, before the execution pipeline — see [Spec 27](27-command-context-persistence.md).
 
 ## 13. Boundary Constraints
 
